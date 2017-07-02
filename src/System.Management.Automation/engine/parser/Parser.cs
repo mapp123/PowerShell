@@ -68,8 +68,8 @@ namespace System.Management.Automation.Language
         {
             const string scriptSchemaExtension = ".schema.psm1";
             var parseDscResource = false;
-            // If the file has the 'schema.psm1' extension, then it is a 'DSC module file' however we don't actually load the
-            // module at parse time so we can't use the normal mechanisms to bind the module name for configuration commands.
+            // If the file has the 'schema.psm1' extension, then it is a 'DSC module file' that contains a composite configuration.
+            // We don't actually load the module at parse time so we can't use the normal mechanisms to bind the module name for configuration commands.
             // As an alternative, we extract the base name of the module file and use that as the module name for any keywords exported by this file.
             var parser = new Parser();
             if (!string.IsNullOrEmpty(fileName) && fileName.Length > scriptSchemaExtension.Length && fileName.EndsWith(scriptSchemaExtension, StringComparison.OrdinalIgnoreCase))
@@ -97,6 +97,14 @@ namespace System.Management.Automation.Language
             ScriptBlockAst result;
             try
             {
+                // Parsing another file could happen within 'PreParse/PostParse' actions of a DynamicKeyword during an on-going parsing.
+                // - When the 'another file' is '*.schema.psm1', the composite configuration will be interpreted as a DSC resource in
+                //   ConfigurationStatementRule, and a new dynamic keyword representing it will be added to the DynamicKeyword cache,
+                //   which will later be used in the top level configuration. In this case, we need the existing DynamicKeyword cache
+                //   for this parsing.
+                // - When the 'another file' is other script files, we want it to be a clean parsing without being affected by the existing
+                //   dynamic keywords. In this case, we call `DynamicKeyword.Push()` to temporarily hide the existing dynamic keywords for
+                //   this parsing.
                 if (!parseDscResource)
                 {
                     DynamicKeyword.Push();
@@ -2751,81 +2759,47 @@ namespace System.Management.Automation.Language
                     return null;
                 }
 
-                ExpressionAst configurationBodyScriptBlock = null;
-
-                // Automatically import the PSDesiredStateConfiguration module at this point.
-                PowerShell p = null;
-
-                // Save the parser we're using so we can resume the current parse when we're done.
-                var currentParser = Runspaces.Runspace.DefaultRunspace.ExecutionContext.Engine.EngineParser;
-                Runspaces.Runspace.DefaultRunspace.ExecutionContext.Engine.EngineParser = new Parser();
-
                 try
                 {
-                    if (localRunspace != null)
+                    // See if the default CIM keywords are already loaded. If they haven't been
+                    // then this is the top level. Record that information and then load the defaults
+                    // keywords.
+                    if (DynamicKeyword.GetKeyword("OMI_ConfigurationDocument") == null)
                     {
-                        p = PowerShell.Create();
-                        p.Runspace = localRunspace;
-                    }
-                    else
-                    {
-                        p = PowerShell.Create(RunspaceMode.CurrentRunspace);
-                    }
+                        // Load the default CIM keywords
+                        Collection<Exception> CIMKeywordErrors = new Collection<Exception>();
+                        Microsoft.PowerShell.DesiredStateConfiguration.Internal.DscClassCache.LoadDefaultCimKeywords(CIMKeywordErrors);
 
-                    try
-                    {
-                        // See of the default CIM keywords are already loaded. If they haven't been
-                        // then this is the top level. Record that information and then load the defaults
-                        // keywords.
-                        if (DynamicKeyword.GetKeyword("OMI_ConfigurationDocument") == null)
+                        // Report any errors encountered while loading CIM dynamic keywords.
+                        if (CIMKeywordErrors.Count > 0)
                         {
-                            // Load the default CIM keywords
-                            Collection<Exception> CIMKeywordErrors = new Collection<Exception>();
-                            Microsoft.PowerShell.DesiredStateConfiguration.Internal.DscClassCache.LoadDefaultCimKeywords(CIMKeywordErrors);
+                            ReportErrorsAsWarnings(CIMKeywordErrors);
+                        }
 
-                            // Report any errors encountered while loading CIM dynamic keywords.
-                            if (CIMKeywordErrors.Count > 0)
+                        // Load any keywords that have been defined earlier in the script.
+                        if (_configurationKeywordsDefinedInThisFile != null)
+                        {
+                            foreach (var kw in _configurationKeywordsDefinedInThisFile.Values)
                             {
-                                ReportErrorsAsWarnings(CIMKeywordErrors);
-                            }
-
-                            // Load any keywords that have been defined earlier in the script.
-                            if (_configurationKeywordsDefinedInThisFile != null)
-                            {
-                                foreach (var kw in _configurationKeywordsDefinedInThisFile.Values)
+                                if (!DynamicKeyword.ContainsKeyword(kw.Keyword))
                                 {
-                                    if (!DynamicKeyword.ContainsKeyword(kw.Keyword))
-                                    {
-                                        DynamicKeyword.AddKeyword(kw);
-                                    }
+                                    DynamicKeyword.AddKeyword(kw);
                                 }
                             }
-
-                            topLevel = true;
                         }
-                    }
-                    catch (Exception e)
-                    {
-                        // This shouldn't happen - the system classes should always be good, but just in case,
-                        // we'll catch the exception and report it as an error.
-                        ReportError(configurationKeywordToken.Extent, () => e.ToString());
-                        return null;
+
+                        topLevel = true;
                     }
                 }
-                finally
+                catch (Exception e)
                 {
-                    if (p != null)
-                    {
-                        p.Dispose();
-                    }
-
-                    //
-                    // Put the parser back...
-                    //
-                    Runspaces.Runspace.DefaultRunspace.ExecutionContext.Engine.EngineParser = currentParser;
+                    // This shouldn't happen - the system classes should always be good, but just in case,
+                    // we'll catch the exception and report it as an error.
+                    ReportError(configurationKeywordToken.Extent, () => e.ToString());
+                    return null;
                 }
 
-
+                ExpressionAst configurationBodyScriptBlock = null;
                 Token lCurly = NextToken();
                 if (lCurly.Kind != TokenKind.LCurly)
                 {
@@ -3619,6 +3593,9 @@ namespace System.Management.Automation.Language
                     bool isScriptResource = String.Compare(functionName.Text, @"Script", StringComparison.OrdinalIgnoreCase) == 0;
                     try
                     {
+                        // Property values for a Script resource could contain definitions of other configurations that are
+                        // totally unrelated to the current one. So before parsing the Hashtable expression, we temporarily
+                        // hide the existing dynamic keywords via 'DynamicKeyword.Push()'.
                         if (isScriptResource)
                             DynamicKeyword.Push();
                         body = HashExpressionRule(lCurly, true /* parsingSchemaElement */);

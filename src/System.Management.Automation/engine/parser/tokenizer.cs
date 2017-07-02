@@ -110,8 +110,12 @@ namespace System.Management.Automation.Language
         }
 
         /// <summary>
-        /// Push current dynamicKeywords cache into stack
+        /// Push current dynamicKeywords cache into stack.
         /// </summary>
+        /// <remarks>
+        /// This method is used to temporarily hide dynamic keywords from a parsing so that
+        /// no existing dynamic keyword will take effect during that parsing.
+        /// </remarks>
         public static void Push()
         {
             DynamicKeywordsStack.Push(t_dynamicKeywords);
@@ -119,7 +123,7 @@ namespace System.Management.Automation.Language
         }
 
         /// <summary>
-        /// Pop up previous  dynamicKeywords cache
+        /// Pop up previous dynamicKeywords cache
         /// </summary>
         public static void Pop()
         {
@@ -281,7 +285,7 @@ namespace System.Management.Automation.Language
         public string ResourceName { get; set; }
 
         /// <summary>
-        /// Set to true if we should be looking for a scriptblock instead of a hashtable
+        /// Set the body mode of the DynamicKeyword
         /// </summary>
         public DynamicKeywordBodyMode BodyMode { get; set; }
 
