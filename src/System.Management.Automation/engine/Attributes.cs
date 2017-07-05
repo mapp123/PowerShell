@@ -65,6 +65,95 @@ namespace System.Management.Automation.Internal
     }
 }
 
+namespace System.Management.Automation.Language
+{
+    /// <summary>
+    /// Indicate an assembly that has PowerShell DSL schemas defined.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Assembly)]
+    public class PowerShellDSLSchemaAttribute : ParsingBaseAttribute
+    {
+    }
+
+    /// <summary>
+    /// Indicate that a class describes a DSL keyword.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class)]
+    public class KeywordAttribute : ParsingBaseAttribute
+    {
+        /// <summary>
+        /// Specifies whether a DynamicKeyword has a name, and if so what kind
+        /// </summary>
+        public DynamicKeywordNameMode NameMode { get; set; } = DynamicKeywordNameMode.NoName;
+
+        /// <summary>
+        /// Specifies the body type of the DynamicKeyword
+        /// </summary>
+        public DynamicKeywordBodyMode BodyMode { get; set; } = DynamicKeywordBodyMode.Command;
+
+        /// <summary>
+        /// Specifies how many times the keyword may be used
+        /// </summary>
+        public DynamicKeywordUseMode UseMode { get; set; } = DynamicKeywordUseMode.OptionalMany;
+
+        /// <summary>
+        /// The DSC resource name of the keyword, if it is a DSC dynamic keyword
+        /// </summary>
+        public string ResourceName { get; set; }
+
+        /// <summary>
+        /// Indicates whether a keyword uses a marshalled call or is a direct function call, for DSC node keywords
+        /// </summary>
+        public bool DirectCall { get; set; }
+
+        /// <summary>
+        /// Indicates that the keyword should not be added to the AST (and therefore should do nothing at runtime) if true
+        /// </summary>
+        public bool MetaStatement { get; set; }
+    }
+
+    /// <summary>
+    /// Declare the nested keywords of a dynamic keyword.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class)]
+    public class NestedKeywordsAttribute : ParsingBaseAttribute
+    {
+        internal Type[] NestedKeywordTypes { get; private set; }
+
+        /// <summary>
+        /// Specify the nested keywords.
+        /// </summary>
+        public NestedKeywordsAttribute(params Type[] nestedKeywordTypes)
+        {
+            NestedKeywordTypes = nestedKeywordTypes; 
+        }
+    }
+
+    /// <summary>
+    /// Define a class property as a DSL keyword parameter.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property)]
+    public class KeywordParameterAttribute : ParsingBaseAttribute
+    {
+        /// <summary>
+        /// Specifies whether this parameter is mandatory
+        /// </summary>
+        public bool Mandatory { get; set; }
+    }
+
+    /// <summary>
+    /// Define a class property as a DSL keyword property (for hashtable keywords).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property)]
+    public class KeywordPropertyAttribute : ParsingBaseAttribute
+    {
+        /// <summary>
+        /// Specifies whether this property is mandatory
+        /// </summary>
+        public bool Mandatory { get; set; }
+    }
+}
+
 namespace System.Management.Automation
 {
     #region Base Metadata Classes
