@@ -310,15 +310,11 @@ namespace System.Management.Automation.Language
         /// <returns>Modules, if can resolve it. null if any problems happens.</returns>
         internal static Collection<PSModuleInfo> ResolveModule(UsingStatementAst usingStatementAst, Parser parser)
         {
+            Diagnostics.Assert(usingStatementAst.UsingStatementKind != UsingStatementKind.Module, "It should be a Module using statement.");
+
             Exception exception = null;
             bool wildcardCharactersUsed = false;
             bool isConstant = true;
-
-            if (usingStatementAst.UsingStatementKind != UsingStatementKind.Module)
-            {
-                // Ignore other kinds of using statements
-                return null;
-            }
 
             do {
                 // fullyQualifiedName can be string or hashtable
@@ -387,7 +383,7 @@ namespace System.Management.Automation.Language
                     {
                         // An empty collection was returned because we didn't find the module
                         var moduleName = usingStatementAst.Alias ?? usingStatementAst.Name;
-                        string moduleText = moduleName != null ? moduleName.Value : usingStatementAst.ModuleSpecification.Extent.Text;
+                        string moduleText = fullyQualifiedName is string ? moduleName.Value : usingStatementAst.ModuleSpecification.Extent.Text;
                         parser.ReportError(usingStatementAst.Extent, () => ParserStrings.ModuleNotFoundDuringParse, moduleText);
                     }
 
@@ -545,19 +541,13 @@ namespace System.Management.Automation.Language
         {
             if (usingStatementAst.UsingStatementKind == UsingStatementKind.Module)
             {
-                Collection<PSModuleInfo> moduleInfo = UsingModuleResolver.ResolveModule(usingStatementAst, _parser);
-                if (moduleInfo != null && moduleInfo.Count > 0)
+                // We must add the same objects (in sense of object refs) to usingStatementAst typeTable and to symbolTable.
+                // Later, this same TypeDefinitionAsts would be used in DefineTypes(), by the module, where it was imported from at compile time.
+                var moduleInfo = usingStatementAst.ModuleInfo;
+                var exportedTypes = moduleInfo.GetExportedTypeDefinitions();
+                foreach (var typePairs in exportedTypes)
                 {
-                    // It's ok that we get more than one modules. They are already sorted in the right order
-                    // and we just need to use the first one
-
-                    // We must add the same objects (in sense of object refs) to usingStatementAst typeTable and to symbolTable.
-                    // Later, this same TypeDefinitionAsts would be used in DefineTypes(), by the module, where it was imported from at compile time.
-                    var exportedTypes = usingStatementAst.DefineImportedModule(moduleInfo[0]);
-                    foreach (var typePairs in exportedTypes)
-                    {
-                        _symbolTable.AddTypeFromUsingModule(typePairs.Value, moduleInfo[0]);
-                    }
+                    _symbolTable.AddTypeFromUsingModule(typePairs.Value, moduleInfo);
                 }
             }
 

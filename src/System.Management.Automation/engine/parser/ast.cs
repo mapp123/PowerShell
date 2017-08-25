@@ -2782,7 +2782,7 @@ namespace System.Management.Automation.Language
         /// <summary>
         /// ModuleInfo about used module. Only for 'using module' case, otherwise null.
         /// </summary>
-        internal PSModuleInfo ModuleInfo { get; private set; }
+        internal PSModuleInfo ModuleInfo { get; set; }
 
         /// <summary>
         /// Copy the UsingStatementAst
@@ -2835,18 +2835,6 @@ namespace System.Management.Automation.Language
         }
 
         #endregion
-
-        /// <summary>
-        /// Define imported module and all type definitions imported by this using statement.
-        /// </summary>
-        /// <param name="moduleInfo"></param>
-        /// <returns>return ExportedTypeTable for this module</returns>
-        internal ReadOnlyDictionary<string, TypeDefinitionAst> DefineImportedModule(PSModuleInfo moduleInfo)
-        {
-            var types = moduleInfo.GetExportedTypeDefinitions();
-            ModuleInfo = moduleInfo;
-            return types;
-        }
 
         /// <summary>
         /// Is UsingStatementKind Module or Assembly.

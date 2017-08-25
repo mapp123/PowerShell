@@ -9,7 +9,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management.Automation;
-using System.Management.Automation.Language;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -17,7 +16,7 @@ using System.Text;
 
 using MethodAttributes = System.Reflection.MethodAttributes;
 
-namespace Microsoft.PowerShell.DomainSpecificLanguage
+namespace System.Management.Automation.Language
 {
     /// <summary>
     /// The base symbol type provider.
@@ -488,16 +487,15 @@ namespace Microsoft.PowerShell.DomainSpecificLanguage
             _strSigProvider = new StringSignatureProvider();
             _parseErrors_ModuleScope = new List<ParseErrorContainer>();
 
-            // Keyword names are case-insensitive in PowerShell
+            // Keyword names are case-insensitive in PowerShell, while Type names and assembly paths are case-sensitive.
+            // Module scope collections
             _keywordNames_ModuleScope = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            // Type names are case-sensitive
-            _keywordTypeNames_AssemblyScope = new HashSet<string>(StringComparer.Ordinal);
-
-            // Keyword names are case-insensitive in PowerShell
-            _keywordNameToKeywordMap_ModuleScope      = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase);
-            _keywordToNestedKeywordsMap_AssemblyScope = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-            // Paths may be case-sensitive and enum type names are case-sensitive
+            _keywordNameToKeywordMap_ModuleScope = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase);
             _assemblyToKeywordTypeNames_ModuleScope   = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+            // Assembly scope collections
+            _keywordTypeNames_AssemblyScope = new HashSet<string>(StringComparer.Ordinal);
+            _keywordToNestedKeywordsMap_AssemblyScope = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             _enumTypeNameToMembers_AssemblyScope      = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         }
 

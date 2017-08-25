@@ -3593,9 +3593,9 @@ namespace System.Management.Automation.Language
                     bool isScriptResource = String.Compare(functionName.Text, @"Script", StringComparison.OrdinalIgnoreCase) == 0;
                     try
                     {
-                        // Property values for a Script resource could contain definitions of other configurations that are
-                        // totally unrelated to the current one. So before parsing the Hashtable expression, we temporarily
-                        // hide the existing dynamic keywords via 'DynamicKeyword.Push()'.
+                        // For Script resources, we don't want the parsing to be affected by the existing dynamic keywords,
+                        // so we temporarily hide the existing dynamic keywords via 'DynamicKeyword.Push()' before parsing
+                        // the Hashtable expression,
                         if (isScriptResource)
                             DynamicKeyword.Push();
                         body = HashExpressionRule(lCurly, true /* parsingSchemaElement */);
@@ -4419,6 +4419,7 @@ namespace System.Management.Automation.Language
             }
 
             HashtableAst htAst = null;
+            UsingStatementAst usingStatementAst = null;
             switch (kind)
             {
                 case UsingStatementKind.Assembly:
@@ -4429,68 +4430,89 @@ namespace System.Management.Automation.Language
                     break;
             }
 
-            // if htAst is not null, then we don't expect alias
-            if ((aliasAllowed || aliasRequired) && (htAst == null))
-            {
-                var equalsToken = PeekToken();
-                if (equalsToken.Kind == TokenKind.Equals)
+            do {
+                // if htAst is not null, then we don't expect alias
+                if ((aliasAllowed || aliasRequired) && (htAst == null))
                 {
-                    SkipToken();
-
-                    var aliasToken = NextToken();
-                    if (aliasToken.Kind == TokenKind.EndOfInput)
+                    var equalsToken = PeekToken();
+                    if (equalsToken.Kind == TokenKind.Equals)
                     {
-                        UngetToken(aliasToken);
-                        ReportIncompleteInput(After(equalsToken), () => ParserStrings.MissingNamespaceAlias);
-                        return new ErrorStatementAst(ExtentOf(usingToken, equalsToken));
+                        SkipToken();
+
+                        var aliasToken = NextToken();
+                        if (aliasToken.Kind == TokenKind.EndOfInput)
+                        {
+                            UngetToken(aliasToken);
+                            ReportIncompleteInput(After(equalsToken), () => ParserStrings.MissingNamespaceAlias);
+                            return new ErrorStatementAst(ExtentOf(usingToken, equalsToken));
+                        }
+
+                        var aliasAst = GetCommandArgument(CommandArgumentContext.CommandArgument, aliasToken);
+                        if (kind == UsingStatementKind.Module && aliasAst is HashtableAst)
+                        {
+                            htAst = (HashtableAst)aliasAst;
+                        }
+                        else if (!(aliasAst is StringConstantExpressionAst))
+                        {
+                            return new ErrorStatementAst(ExtentOf(usingToken, aliasAst), new Ast[] { itemAst, aliasAst });
+                        }
+
+                        RequireStatementTerminator();
+
+                        usingStatementAst = htAst == null
+                            ? new UsingStatementAst(ExtentOf(usingToken, aliasToken), kind, (StringConstantExpressionAst)itemAst, (StringConstantExpressionAst)aliasAst)
+                            : new UsingStatementAst(ExtentOf(usingToken, aliasToken), (StringConstantExpressionAst)itemAst, htAst);
+
+                        break; // Successfully created the UsingStatementAst instance. Now see if need further processing.
                     }
 
-                    var aliasAst = GetCommandArgument(CommandArgumentContext.CommandArgument, aliasToken);
-                    if (kind == UsingStatementKind.Module && aliasAst is HashtableAst)
+                    if (aliasRequired)
                     {
-                        htAst = (HashtableAst)aliasAst;
-                    }
-                    else if (!(aliasAst is StringConstantExpressionAst))
-                    {
-                        return new ErrorStatementAst(ExtentOf(usingToken, aliasAst), new Ast[] { itemAst, aliasAst });
-                    }
-
-                    RequireStatementTerminator();
-
-                    if (htAst == null)
-                    {
-                        return new UsingStatementAst(
-                            ExtentOf(usingToken, aliasToken),
-                            kind,
-                            (StringConstantExpressionAst)itemAst,
-                            (StringConstantExpressionAst)aliasAst);
-                    }
-                    else
-                    {
-                        return new UsingStatementAst(
-                            ExtentOf(usingToken, aliasToken),
-                            (StringConstantExpressionAst)itemAst,
-                            htAst);
+                        ReportIncompleteInput(After(itemToken), () => ParserStrings.MissingEqualsInUsingAlias);
+                        return new ErrorStatementAst(ExtentOf(usingToken, itemAst), new Ast[] { itemAst });
                     }
                 }
 
-                if (aliasRequired)
+                RequireStatementTerminator();
+
+                usingStatementAst = htAst == null
+                    ? new UsingStatementAst(ExtentOf(usingToken, itemAst), kind, (StringConstantExpressionAst)itemAst)
+                    : new UsingStatementAst(ExtentOf(usingToken, itemAst), htAst);
+
+            } while (false);
+
+            // Before returning the UsingStatementAst, do further processing if it's 'Module' kind.
+            //  - try resolving the module
+            //  - try loading DSL keywords from the module assemblies
+            if (usingStatementAst.UsingStatementKind == UsingStatementKind.Module)
+            {
+                Collection<PSModuleInfo> moduleInfo = UsingModuleResolver.ResolveModule(usingStatementAst, this);
+                if (moduleInfo != null && moduleInfo.Count > 0)
                 {
-                    ReportIncompleteInput(After(itemToken), () => ParserStrings.MissingEqualsInUsingAlias);
-                    return new ErrorStatementAst(ExtentOf(usingToken, itemAst), new Ast[] { itemAst });
+                    // It's ok that we get more than one modules. They are already sorted in the right order
+                    // and we just need to use the first one
+                    usingStatementAst.ModuleInfo = moduleInfo[0];
+
+                    // Try retrieving DSL keywords defined in this module
+                    List<ParseErrorContainer> dslParseErrors;
+                    IEnumerable<DynamicKeyword> dslKeywords = DSLKeywordMetadataReader.ReadDslKeywords(moduleInfo[0], out dslParseErrors);
+
+                    foreach (ParseErrorContainer error in dslParseErrors)
+                    {
+                        ReportError(error.GenerateParseError(usingStatementAst.Extent));
+                    }
+
+                    if (dslKeywords != null)
+                    {
+                        foreach (DynamicKeyword dslKeyword in dslKeywords)
+                        {
+                            DynamicKeyword.AddKeyword(dslKeyword);
+                        }
+                    }
                 }
             }
 
-            RequireStatementTerminator();
-
-            if (htAst == null)
-            {
-                return new UsingStatementAst(ExtentOf(usingToken, itemAst), kind, (StringConstantExpressionAst)itemAst);
-            }
-            else
-            {
-                return new UsingStatementAst(ExtentOf(usingToken, itemAst), htAst);
-            }
+            return usingStatementAst;
         }
 
         private StringConstantExpressionAst ResolveUsingAssembly(StringConstantExpressionAst name)
