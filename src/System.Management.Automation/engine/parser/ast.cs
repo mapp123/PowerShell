@@ -6658,7 +6658,7 @@ namespace System.Management.Automation.Language
 
             /////////////////////////////////////////////////////////////////////////
             //
-            // Now construct the AST to call the function that defines implements the keywords logic. There are
+            // Now construct the AST to call the function that defines/implements the keywords logic. There are
             // two different types of ASTs that may be generated, depending on the settings in the DynamicKeyword object.
             // The first type uses a fixed set of 4 arguments and has the command with the signature
             //  function moduleName\keyword

@@ -668,7 +668,7 @@ namespace System.Management.Automation.Language
                         var nestedKeyword = _keywordNameToKeywordMap_ModuleScope[nestedKeywordName];
                         nestedKeyword.IsNested = true;
 
-                        // No point to check for loops.
+                        // No point to check for loops if we had any errors
                         if (_parseErrors_ModuleScope.Count == 0)
                         {
                             if (value == null) { value = new List<KeywordVertex>(); }

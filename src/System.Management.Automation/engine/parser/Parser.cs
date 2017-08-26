@@ -3352,6 +3352,8 @@ namespace System.Management.Automation.Language
         /// <returns></returns>
         private StatementAst DynamicKeywordStatementRule(Token functionName, DynamicKeyword keywordData)
         {
+            bool isDslKeyword = DynamicKeyword.ControlState == DynamicKeyword.State.DSL;
+
             //////////////////////////////////////////////////////////////////////////////////
             // If a custom action was provided. then invoke it
             //////////////////////////////////////////////////////////////////////////////////
@@ -3386,6 +3388,13 @@ namespace System.Management.Automation.Language
             {
                 // ErrorRecovery: eat the token
                 ReportError(functionName.Extent, () => ParserStrings.UnsupportedReservedProperty, "'Require', 'Trigger', 'Notify', 'Before', 'After' and 'Subscribe'");
+                return null;
+            }
+
+            if (isDslKeyword && DynamicKeyword.DslCurrentScope.CheckDslKeywordUseMode(keywordData))
+            {
+                // DSL-TODO: report error
+                // ReportError(functionName.Extent, ...
                 return null;
             }
 
@@ -3577,6 +3586,7 @@ namespace System.Management.Automation.Language
                 if (keywordData.BodyMode == DynamicKeywordBodyMode.ScriptBlock)
                 {
                     var oldInConfiguration = _inConfiguration;
+                    if (isDslKeyword) { DynamicKeyword.EnterDslScope(keywordData); }
                     try
                     {
                         _inConfiguration = false;
@@ -3584,6 +3594,7 @@ namespace System.Management.Automation.Language
                     }
                     finally
                     {
+                        if (isDslKeyword) { DynamicKeyword.LeaveDslScope(); }
                         _inConfiguration = oldInConfiguration;
                     }
                 }
@@ -4494,19 +4505,24 @@ namespace System.Management.Automation.Language
                     usingStatementAst.ModuleInfo = moduleInfo[0];
 
                     // Try retrieving DSL keywords defined in this module
-                    List<ParseErrorContainer> dslParseErrors;
-                    IEnumerable<DynamicKeyword> dslKeywords = DSLKeywordMetadataReader.ReadDslKeywords(moduleInfo[0], out dslParseErrors);
+                    var dslKeywords = DSLKeywordMetadataReader.ReadDslKeywords(
+                        usingStatementAst.ModuleInfo, out List<ParseErrorContainer> dslParseErrors);
 
-                    foreach (ParseErrorContainer error in dslParseErrors)
+                    if (dslKeywords == null)
                     {
-                        ReportError(error.GenerateParseError(usingStatementAst.Extent));
+                        foreach (ParseErrorContainer error in dslParseErrors)
+                        {
+                            ReportError(error.GenerateParseError(usingStatementAst.Extent));
+                        }
                     }
-
-                    if (dslKeywords != null)
+                    else if (dslKeywords.Any())
                     {
+                        DynamicKeyword.ControlState = DynamicKeyword.State.DSL;
+                        Diagnostics.Assert(DynamicKeyword.DslCurrentScope.IsTopLevelScope(), "We should at the top-level scope");
                         foreach (DynamicKeyword dslKeyword in dslKeywords)
                         {
-                            DynamicKeyword.AddKeyword(dslKeyword);
+                            // Add top-level DSL keywords to the top-level scope.
+                            if (!dslKeyword.IsNested) { DynamicKeyword.AddKeyword(dslKeyword); }
                         }
                     }
                 }

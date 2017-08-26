@@ -115,119 +115,283 @@ namespace System.Management.Automation.Language
     }
 
     /// <summary>
-    /// Defines the schema/behaviour for a dynamic keyword.
-    /// a constrained
+    /// Represent a DSL scope. A DSL keyword defines a scope.
     /// </summary>
-    public class DynamicKeyword
+    internal class DslScope
     {
-        #region static properties/functions
+        internal readonly DynamicKeyword EnclosingKeyword;
+        internal readonly Dictionary<string, DynamicKeyword> EnclosedKeywords;
+
+        private Dictionary<DynamicKeyword, int> _countOfKeywordUse;
+
+        internal DslScope()
+        {
+            EnclosingKeyword = null;
+            EnclosedKeywords = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase);
+            Init();
+        }
+
+        internal DslScope(DynamicKeyword enclosingKeyword)
+        {
+            if (enclosingKeyword == null)
+            {
+                throw PSTraceSource.NewArgumentNullException(nameof(enclosingKeyword));
+            }
+            EnclosingKeyword = enclosingKeyword;
+            EnclosedKeywords = enclosingKeyword.InnerKeywords;
+            Init();
+        }
+
+        private void Init()
+        {
+            _countOfKeywordUse = new Dictionary<DynamicKeyword, int>();
+        }
+
+        internal bool IsTopLevelScope()
+        {
+            return EnclosingKeyword == null;
+        }
+
+        internal bool CheckDslKeywordUseMode(DynamicKeyword keyword)
+        {
+            if (_countOfKeywordUse.ContainsKey(keyword))
+            {
+                _countOfKeywordUse[keyword]++;
+            }
+            else
+            {
+                _countOfKeywordUse.Add(keyword, 1);
+            }
+
+            switch (keyword.UseMode)
+            {
+                case DynamicKeywordUseMode.Required:
+                case DynamicKeywordUseMode.Optional:
+                    return _countOfKeywordUse[keyword] == 1;
+
+                case DynamicKeywordUseMode.RequiredMany:
+                case DynamicKeywordUseMode.OptionalMany:
+                    return true;
+
+                default:
+                    throw new PSArgumentOutOfRangeException(nameof(keyword.UseMode));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Defines the controls for manipulating dynamic keywords.
+    /// </summary>
+    public partial class DynamicKeyword
+    {
+        /// <summary>
+        /// The state of the dynamic keyword controls
+        /// </summary>
+        internal enum State
+        {
+            DSC = 0, // Controls are for DSC dynamic keywords
+            DSL = 1  // Controls are for DSL dynamic keywords
+        }
+
+        // Make the default control state be 'DSC' so that all existing codes that use
+        // the dynamic keyword control APIs will continue to work.
+        internal const State DefaultControlState = State.DSC;
 
         /// <summary>
-        /// Defines a dictionary of dynamic keywords, stored in thread-local storage.
+        /// State of the dynamic keyword control APIs
+        /// </summary>
+        internal static State ControlState
+        {
+            get { return t_controlState; }
+            set { t_controlState = value; }
+        }
+        [ThreadStatic]
+        private static State t_controlState = DefaultControlState;
+
+        /// <summary>
+        /// The current DSL scope
+        /// </summary>
+        internal static DslScope DslCurrentScope
+        {
+            get
+            {
+                if (ControlState != State.DSL)
+                {
+                    // DSL-TODO: error message
+                    throw PSTraceSource.NewInvalidOperationException();
+                }
+                return t_dslCurrentScope ?? (t_dslCurrentScope = new DslScope());
+            }
+        }
+        [ThreadStatic]
+        private static DslScope t_dslCurrentScope;
+
+        /// <summary>
+        /// A dictionary of DSC dynamic keywords, stored in thread-local storage.
         /// </summary>
         private static Dictionary<string, DynamicKeyword> DynamicKeywords
         {
             get
             {
-                return t_dynamicKeywords ??
-                       (t_dynamicKeywords = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase));
+                if (ControlState == State.DSC)
+                {
+                    return t_dscDynamicKeywords ??
+                        (t_dscDynamicKeywords = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase));
+                }
+                else
+                {
+                    return DslCurrentScope.EnclosedKeywords;
+                }
             }
         }
-
         [ThreadStatic]
-        private static Dictionary<string, DynamicKeyword> t_dynamicKeywords;
+        private static Dictionary<string, DynamicKeyword> t_dscDynamicKeywords;
 
         /// <summary>
-        /// stack of DynamicKeywords Cache
+        /// Stack of the DSC dynamic keyword cache
         /// </summary>
-        ///
-        private static Stack<Dictionary<string, DynamicKeyword>> DynamicKeywordsStack
+        private static Stack<Dictionary<string, DynamicKeyword>> DscDynamicKeywordsStack
         {
             get
             {
-                return t_dynamicKeywordsStack ??
-                       (t_dynamicKeywordsStack = new Stack<Dictionary<string, DynamicKeyword>>());
+                return t_dscDynamicKeywordsStack ??
+                    (t_dscDynamicKeywordsStack = new Stack<Dictionary<string, DynamicKeyword>>());
             }
         }
         [ThreadStatic]
-        private static Stack<Dictionary<string, DynamicKeyword>> t_dynamicKeywordsStack;
+        private static Stack<Dictionary<string, DynamicKeyword>> t_dscDynamicKeywordsStack;
 
         /// <summary>
-        /// Reset the keyword table to a new empty collection.
+        /// Stack of the DSL dynamic keyword scope
+        /// </summary>
+        private static Stack<DslScope> DslScopeStack
+        {
+            get
+            {
+                return t_dslScopeStack ?? (t_dslScopeStack = new Stack<DslScope>());
+            }
+        }
+        [ThreadStatic]
+        private static Stack<DslScope> t_dslScopeStack;
+
+        /// <summary>
+        /// For DSC -- reset the DSC keyword table to a new empty collection;
+        /// For DSL -- clear the DSL keywords.
         /// </summary>
         public static void Reset()
         {
-            t_dynamicKeywords = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase);
+            if (ControlState == State.DSC)
+            {
+                t_dscDynamicKeywords = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                t_dslCurrentScope = new DslScope();
+                t_dslScopeStack.Clear();
+            }
         }
 
         /// <summary>
-        /// Push current dynamicKeywords cache into stack.
+        /// Push current DSC dynamic keyword cache into stack.
         /// </summary>
         /// <remarks>
-        /// This method is used to temporarily hide dynamic keywords from a parsing so that
-        /// no existing dynamic keyword will take effect during that parsing.
+        /// This method is used to temporarily hide DSC dynamic keywords from a parsing so that
+        /// no existing DSC dynamic keyword will take effect during that parsing.
         /// </remarks>
         public static void Push()
         {
-            DynamicKeywordsStack.Push(t_dynamicKeywords);
+            if (ControlState != State.DSC)
+            {
+                // DSL-TODO: error message
+                throw PSTraceSource.NewInvalidOperationException();
+            }
+            DscDynamicKeywordsStack.Push(t_dscDynamicKeywords);
             Reset();
         }
 
         /// <summary>
-        /// Pop up previous dynamicKeywords cache
+        /// Pop up previous DSC dynamic keyword cache
         /// </summary>
         public static void Pop()
         {
-            t_dynamicKeywords = DynamicKeywordsStack.Pop();
+            if (ControlState != State.DSC)
+            {
+                // DSL-TODO: error message
+                throw PSTraceSource.NewInvalidOperationException();
+            }
+            t_dscDynamicKeywords = DscDynamicKeywordsStack.Pop();
         }
 
         /// <summary>
-        ///
+        /// Enter a DSL scope represented by the enclosing keyword
         /// </summary>
-        /// <param name="name"></param>
-        /// <returns></returns>
+        internal static void EnterDslScope(DynamicKeyword enclosingKeyword)
+        {
+            Diagnostics.Assert(enclosingKeyword != null, "enclosingKeyword shouldn't be null");
+            if (ControlState != State.DSL)
+            {
+                // DSL-TODO: error message
+                throw PSTraceSource.NewInvalidOperationException();
+            }
+            t_dslScopeStack.Push(t_dslCurrentScope);
+            t_dslCurrentScope = new DslScope(enclosingKeyword);
+        }
+
+        /// <summary>
+        /// Leave the current DSL scope
+        /// </summary>
+        internal static void LeaveDslScope()
+        {
+            if (ControlState != State.DSL)
+            {
+                // DSL-TODO: error message
+                throw PSTraceSource.NewInvalidOperationException();
+            }
+            t_dslCurrentScope = t_dslScopeStack.Pop();
+        }
+
+        /// <summary>
+        /// For DSC -- get a DSC dynamic keyword for the given name;
+        /// For DSL -- get a DSL dynamic keyword for the given name from the current scope.
+        /// </summary>
         public static DynamicKeyword GetKeyword(string name)
         {
-            DynamicKeyword keywordToReturn;
-            DynamicKeyword.DynamicKeywords.TryGetValue(name, out keywordToReturn);
+            DynamicKeywords.TryGetValue(name, out DynamicKeyword keywordToReturn);
             return keywordToReturn;
         }
 
         /// <summary>
-        /// Returns a copied list of all of the existing dynamic keyword definitions.
+        /// For DSC -- return a copied list of all of the existing dynamic keyword definitions;
+        /// For DSL -- return a copied list of all dynamic keyword definitions from the current scope.
         /// </summary>
         /// <returns></returns>
         public static List<DynamicKeyword> GetKeyword()
         {
-            return new List<DynamicKeyword>(DynamicKeyword.DynamicKeywords.Values);
+            return new List<DynamicKeyword>(DynamicKeywords.Values);
         }
 
         /// <summary>
-        ///
+        /// For DSC -- check if the dynamic keyword name exists;
+        /// For DSL -- check if the dynamic keyword name exists in the current scope.
         /// </summary>
-        /// <param name="name"></param>
-        /// <returns></returns>
         public static bool ContainsKeyword(string name)
         {
             if (string.IsNullOrEmpty(name))
             {
-                PSArgumentNullException e = PSTraceSource.NewArgumentNullException("name");
-                throw e;
+                throw PSTraceSource.NewArgumentNullException("name");
             }
-
-            return DynamicKeyword.DynamicKeywords.ContainsKey(name);
+            return DynamicKeywords.ContainsKey(name);
         }
 
         /// <summary>
-        ///
+        /// For DSC -- add a dynamic keyword to the cache;
+        /// For DSL -- add a dynamic keyword to the cache of current scope.
         /// </summary>
-        /// <param name="keywordToAdd"></param>
         public static void AddKeyword(DynamicKeyword keywordToAdd)
         {
             if (keywordToAdd == null)
             {
-                PSArgumentNullException e = PSTraceSource.NewArgumentNullException("keywordToAdd");
-                throw e;
+                throw PSTraceSource.NewArgumentNullException("keywordToAdd");
             }
 
             // Allow overwriting of the existing entries
@@ -237,30 +401,27 @@ namespace System.Management.Automation.Language
                 throw PSTraceSource.NewArgumentNullException("keywordToAdd.Keyword");
             }
 
-            DynamicKeyword.DynamicKeywords.Remove(name);
-            DynamicKeyword.DynamicKeywords.Add(name, keywordToAdd);
+            DynamicKeywords.Remove(name);
+            DynamicKeywords.Add(name, keywordToAdd);
         }
 
         /// <summary>
-        /// Remove a single entry from the dynamic keyword collection
-        /// and clean up any associated data.
+        /// For DSC -- remove a single entry from the dynamic keyword cache;
+        /// For DSL -- remove a single entry from the dynamic keyword cache of current scope.
         /// </summary>
         /// <param name="name"></param>
         public static void RemoveKeyword(string name)
         {
             if (string.IsNullOrEmpty(name))
             {
-                PSArgumentNullException e = PSTraceSource.NewArgumentNullException("name");
-                throw e;
+                throw PSTraceSource.NewArgumentNullException("name");
             }
-            DynamicKeyword.DynamicKeywords.Remove(name);
+            DynamicKeywords.Remove(name);
         }
 
         /// <summary>
         /// Check if it is a hidden keyword
         /// </summary>
-        /// <param name="name"></param>
-        /// <returns></returns>
         internal static bool IsHiddenKeyword(string name)
         {
             if (string.IsNullOrEmpty(name))
@@ -278,9 +439,13 @@ namespace System.Management.Automation.Language
         /// </summary>
         private static readonly HashSet<string> s_hiddenDynamicKeywords =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "MSFT_Credential" };
+    }
 
-        #endregion
-
+    /// <summary>
+    /// Defines the schema/behaviour for a dynamic keyword.
+    /// </summary>
+    public partial class DynamicKeyword
+    {
         /// <summary>
         /// Duplicates the DynamicKeyword
         /// </summary>
