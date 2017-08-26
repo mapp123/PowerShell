@@ -6690,6 +6690,9 @@ namespace System.Management.Automation.Language
             //
             var cea = new Collection<CommandElementAst>();
 
+            // In some cicumstances there is no LCurly (like when the keyword is a command), but we still want to execute
+            Token lastValidCommandToken = LCurly ?? FunctionName;
+
             //
             // First add the name of the command to call. If a module name has been provided
             // then use the module-qualified form of the command name..
@@ -6778,7 +6781,7 @@ namespace System.Management.Automation.Language
                                     FunctionName.Extent,
                                     propName.Value,
                                     propValue,
-                                    LCurly.Extent));
+                                    lastValidCommandToken.Extent));
                         }
                     }
                     else
@@ -6790,7 +6793,7 @@ namespace System.Management.Automation.Language
                                 FunctionName.Extent,
                                 "InvalidPropertyHashtable",
                                 hashtable,
-                                LCurly.Extent));
+                                lastValidCommandToken.Extent));
                     }
                 }
             }
@@ -6810,7 +6813,7 @@ namespace System.Management.Automation.Language
                             typeof(System.Management.Automation.Language.DynamicKeyword).FullName)),
                     new StringConstantExpressionAst(
                         FunctionName.Extent,
-                        "GetKeyword",
+                        "GetScopeDefinedKeyword",
                         StringConstantType.BareWord),
                     new List<ExpressionAst>
                         {
@@ -6826,7 +6829,7 @@ namespace System.Management.Automation.Language
                         FunctionName.Extent,
                         "KeywordData",
                         indexExpr,
-                        LCurly.Extent));
+                        lastValidCommandToken.Extent));
 
                 //
                 // Add the -Name parameter
@@ -6836,17 +6839,17 @@ namespace System.Management.Automation.Language
                         FunctionName.Extent,
                         "Name",
                         InstanceName,
-                        LCurly.Extent));
+                        lastValidCommandToken.Extent));
 
                 //
                 // Add the -Value parameter
                 //
                 cea.Add(
                     new CommandParameterAst(
-                        LCurly.Extent,
+                        lastValidCommandToken.Extent,
                         "Value",
                         expr,
-                        LCurly.Extent));
+                        lastValidCommandToken.Extent));
 
                 //
                 // Add the -SourceMetadata parameter
@@ -6857,12 +6860,22 @@ namespace System.Management.Automation.Language
                                         + "::" + FunctionName.Extent.Text;
                 cea.Add(
                     new CommandParameterAst(
-                        LCurly.Extent, "SourceMetadata",
+                        lastValidCommandToken.Extent, "SourceMetadata",
                         new StringConstantExpressionAst(
                             FunctionName.Extent,
                             sourceMetadata,
                             StringConstantType.BareWord),
-                        LCurly.Extent));
+                        lastValidCommandToken.Extent));
+            }
+
+            // Command-bodied keywords are generated using the CommandRule,
+            // which adds any parameters passed. So we should pass them through
+            if (Keyword.BodyMode == DynamicKeywordBodyMode.Command)
+            {
+                foreach (var commandArgument in CommandElements.Skip(1))
+                {
+                    cea.Add(CopyElement(commandArgument));
+                }
             }
 
             //
