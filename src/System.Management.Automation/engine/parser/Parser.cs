@@ -40,7 +40,6 @@ namespace System.Management.Automation.Language
         internal Token _ungotToken;
         private bool _disableCommaOperator;
         private bool _savingTokens;
-        private bool _inConfiguration;
         private ParseMode _parseMode;
 
         //private bool _v3FeatureUsed;
@@ -223,6 +222,14 @@ namespace System.Management.Automation.Language
                 else
                 {
                     ReportError(_tokenizer.CurrentExtent(), () => ParserStrings.ScriptTooComplicated);
+                }
+            }
+            finally
+            {
+                if (DynamicKeyword.ControlState == DynamicKeyword.State.DSL)
+                {
+                    DynamicKeyword.Reset();
+                    DynamicKeyword.ControlState = DynamicKeyword.DefaultControlState;
                 }
             }
 
@@ -2809,16 +2816,7 @@ namespace System.Management.Automation.Language
                 }
                 else
                 {
-                    var oldInConfiguration = _inConfiguration;
-                    try
-                    {
-                        _inConfiguration = true;
-                        configurationBodyScriptBlock = ScriptBlockExpressionRule(lCurly);
-                    }
-                    finally
-                    {
-                        _inConfiguration = oldInConfiguration;
-                    }
+                    configurationBodyScriptBlock = ScriptBlockExpressionRule(lCurly);
                     if (configurationBodyScriptBlock == null)
                     {
                         ReportError(After(lCurly.Extent), () => ParserStrings.ConfigurationBodyEmpty);
@@ -3391,7 +3389,7 @@ namespace System.Management.Automation.Language
                 return null;
             }
 
-            if (isDslKeyword && DynamicKeyword.DslCurrentScope.CheckDslKeywordUseMode(keywordData))
+            if (isDslKeyword && !DynamicKeyword.DslCurrentScope.IsUseModeRequirementMet(keywordData))
             {
                 // DSL-TODO: report error
                 // ReportError(functionName.Extent, ...
@@ -3583,40 +3581,39 @@ namespace System.Management.Automation.Language
                 // if a scriptblock or a hashtable is expected.
                 //
                 ExpressionAst body = null;
-                if (keywordData.BodyMode == DynamicKeywordBodyMode.ScriptBlock)
+                try
                 {
-                    var oldInConfiguration = _inConfiguration;
+                    // For DSL keywords, enter the scope represented by the keyword.
                     if (isDslKeyword) { DynamicKeyword.EnterDslScope(keywordData); }
-                    try
+                    switch (keywordData.BodyMode)
                     {
-                        _inConfiguration = false;
-                        body = ScriptBlockExpressionRule(lCurly);
-                    }
-                    finally
-                    {
-                        if (isDslKeyword) { DynamicKeyword.LeaveDslScope(); }
-                        _inConfiguration = oldInConfiguration;
+                        case DynamicKeywordBodyMode.ScriptBlock:
+                            body = ScriptBlockExpressionRule(lCurly);
+                            break;
+
+                        case DynamicKeywordBodyMode.Hashtable:
+                            // For DSC Script resources, we don't want the parsing to be affected by the existing DSC keywords,
+                            // so we temporarily hide the existing dynamic keywords via 'DynamicKeyword.Push()' before parsing
+                            // the Hashtable expression.
+                            bool isScriptResource = !isDslKeyword && functionName.Text.Equals("Script", StringComparison.OrdinalIgnoreCase);
+                            try
+                            {
+                                if (isScriptResource) { DynamicKeyword.Push(); }
+                                body = HashExpressionRule(lCurly, parsingSchemaElement: true);
+                            }
+                            finally
+                            {
+                                if (isScriptResource) { DynamicKeyword.Pop(); }
+                            }
+                            break;
                     }
                 }
-                else if (keywordData.BodyMode == DynamicKeywordBodyMode.Hashtable)
+                finally
                 {
-                    // Resource property value could be set to nested DSC resources except Script resource
-                    bool isScriptResource = String.Compare(functionName.Text, @"Script", StringComparison.OrdinalIgnoreCase) == 0;
-                    try
-                    {
-                        // For Script resources, we don't want the parsing to be affected by the existing dynamic keywords,
-                        // so we temporarily hide the existing dynamic keywords via 'DynamicKeyword.Push()' before parsing
-                        // the Hashtable expression,
-                        if (isScriptResource)
-                            DynamicKeyword.Push();
-                        body = HashExpressionRule(lCurly, true /* parsingSchemaElement */);
-                    }
-                    finally
-                    {
-                        if (isScriptResource)
-                            DynamicKeyword.Pop();
-                    }
+                    // For DSL keywords, leave the scope after dealing with the body
+                    if (isDslKeyword) { DynamicKeyword.LeaveDslScope(); }
                 }
+
                 // commandast
                 // elements: instancename/dynamickeyword/hashtable or scripblockexpress
                 if (body == null)
@@ -4505,12 +4502,12 @@ namespace System.Management.Automation.Language
                     usingStatementAst.ModuleInfo = moduleInfo[0];
 
                     // Try retrieving DSL keywords defined in this module
-                    var dslKeywords = DSLKeywordMetadataReader.ReadDslKeywords(
-                        usingStatementAst.ModuleInfo, out List<ParseErrorContainer> dslParseErrors);
+                    var dslKeywords = DSL.DSLKeywordMetadataReader.ReadDslKeywords(
+                        usingStatementAst.ModuleInfo, out List<DSL.ParseErrorContainer> dslParseErrors);
 
                     if (dslKeywords == null)
                     {
-                        foreach (ParseErrorContainer error in dslParseErrors)
+                        foreach (var error in dslParseErrors)
                         {
                             ReportError(error.GenerateParseError(usingStatementAst.Extent));
                         }
@@ -4518,7 +4515,7 @@ namespace System.Management.Automation.Language
                     else if (dslKeywords.Any())
                     {
                         DynamicKeyword.ControlState = DynamicKeyword.State.DSL;
-                        Diagnostics.Assert(DynamicKeyword.DslCurrentScope.IsTopLevelScope(), "We should at the top-level scope");
+                        Diagnostics.Assert(DynamicKeyword.DslCurrentScope.IsTopLevelScope, "We should at the top-level scope");
                         foreach (DynamicKeyword dslKeyword in dslKeywords)
                         {
                             // Add top-level DSL keywords to the top-level scope.

@@ -14,10 +14,10 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
-using MethodAttributes = System.Reflection.MethodAttributes;
-
-namespace System.Management.Automation.Language
+namespace System.Management.Automation.Language.DSL
 {
+    using MethodAttributes = System.Reflection.MethodAttributes;
+
     /// <summary>
     /// The base symbol type provider.
     /// </summary>
@@ -892,6 +892,10 @@ namespace System.Management.Automation.Language
                 _parseErrors_ModuleScope.Add(new ParseErrorContainer(nameof(ParserStrings.DynamicKeywordMetadataKeywordAlreadyDefinedInScope),
                     ParserStrings.DynamicKeywordMetadataKeywordAlreadyDefinedInScope, keywordName));
             }
+            else if (nestedKeywordTypeNames != null && nestedKeywordTypeNames.Contains(typeName))
+            {
+                // DSL-TODO: Report error - the keyword's nested keywords contain itself (A->A).
+            }
             else
             {
                 _keywordToNestedKeywordsMap_AssemblyScope.Add(keywordName, nestedKeywordTypeNames);
@@ -955,7 +959,7 @@ namespace System.Management.Automation.Language
                 }
             }
 
-            if (_parseErrors_ModuleScope.Count == 0) { return null; }
+            if (_parseErrors_ModuleScope.Count > 0) { return null; }
 
             // Finally, construct the keyword
             var keyword = new DynamicKeyword()
@@ -1212,6 +1216,7 @@ namespace System.Management.Automation.Language
         /// <summary>
         /// Tarjan's strongly connected components algorithm.
         /// See https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm
+        /// Also see https://stackoverflow.com/questions/261573/best-algorithm-for-detecting-cycles-in-a-directed-graph
         /// </summary>
         internal static List<List<string>> GetNestedKeywordLoops(Dictionary<KeywordVertex, List<KeywordVertex>> graph)
         {
@@ -1259,16 +1264,21 @@ namespace System.Management.Automation.Language
                     }
                 }
 
-                // If vertex is a root node, pop the stack and generate an SCC
+                // If vertex is a root node, pop the stack and generate an SCC.
                 if (vertex.LowLink == vertex.Index)
                 {
+                    // Any vertex is a SCC by itself, but it's not a loop, so we ignore the singleton SCC.
+                    KeywordVertex current = stack.Pop();
+                    current.OnStack = false;
+                    if (current == vertex) { return; }
+
                     List<string> loop = new List<string>();
-                    KeywordVertex current = null;
-                    do {
+                    while (current != vertex)
+                    {
+                        loop.Add(current.Name);
                         current = stack.Pop();
                         current.OnStack = false;
-                        loop.Add(current.Name);
-                    } while (current != vertex);
+                    }
 
                     loops.Add(loop);
                 }

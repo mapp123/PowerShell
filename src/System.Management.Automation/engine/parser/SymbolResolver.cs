@@ -310,7 +310,7 @@ namespace System.Management.Automation.Language
         /// <returns>Modules, if can resolve it. null if any problems happens.</returns>
         internal static Collection<PSModuleInfo> ResolveModule(UsingStatementAst usingStatementAst, Parser parser)
         {
-            Diagnostics.Assert(usingStatementAst.UsingStatementKind != UsingStatementKind.Module, "It should be a Module using statement.");
+            Diagnostics.Assert(usingStatementAst.UsingStatementKind == UsingStatementKind.Module, "It should be a Module using statement.");
 
             Exception exception = null;
             bool wildcardCharactersUsed = false;
@@ -544,10 +544,13 @@ namespace System.Management.Automation.Language
                 // We must add the same objects (in sense of object refs) to usingStatementAst typeTable and to symbolTable.
                 // Later, this same TypeDefinitionAsts would be used in DefineTypes(), by the module, where it was imported from at compile time.
                 var moduleInfo = usingStatementAst.ModuleInfo;
-                var exportedTypes = moduleInfo.GetExportedTypeDefinitions();
-                foreach (var typePairs in exportedTypes)
+                if (moduleInfo != null)
                 {
-                    _symbolTable.AddTypeFromUsingModule(typePairs.Value, moduleInfo);
+                    var exportedTypes = moduleInfo.GetExportedTypeDefinitions();
+                    foreach (var typePairs in exportedTypes)
+                    {
+                        _symbolTable.AddTypeFromUsingModule(typePairs.Value, moduleInfo);
+                    }
                 }
             }
 

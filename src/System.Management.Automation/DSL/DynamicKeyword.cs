@@ -128,7 +128,6 @@ namespace System.Management.Automation.Language
         {
             EnclosingKeyword = null;
             EnclosedKeywords = new Dictionary<string, DynamicKeyword>(StringComparer.OrdinalIgnoreCase);
-            Init();
         }
 
         internal DslScope(DynamicKeyword enclosingKeyword)
@@ -139,39 +138,40 @@ namespace System.Management.Automation.Language
             }
             EnclosingKeyword = enclosingKeyword;
             EnclosedKeywords = enclosingKeyword.InnerKeywords;
-            Init();
         }
 
-        private void Init()
+        internal bool IsTopLevelScope
         {
-            _countOfKeywordUse = new Dictionary<DynamicKeyword, int>();
+            get { return EnclosingKeyword == null; }
         }
 
-        internal bool IsTopLevelScope()
+        internal bool IsUseModeRequirementMet(DynamicKeyword keyword)
         {
-            return EnclosingKeyword == null;
-        }
-
-        internal bool CheckDslKeywordUseMode(DynamicKeyword keyword)
-        {
-            if (_countOfKeywordUse.ContainsKey(keyword))
+            if (_countOfKeywordUse == null)
             {
-                _countOfKeywordUse[keyword]++;
+                _countOfKeywordUse = new Dictionary<DynamicKeyword, int>();
+                _countOfKeywordUse.Add(keyword, 1);
+                return true;
             }
-            else
+
+            if (!_countOfKeywordUse.ContainsKey(keyword))
             {
                 _countOfKeywordUse.Add(keyword, 1);
+                return true;
             }
+
+            // It's at least the second time we see this keyword being used.
+            _countOfKeywordUse[keyword]++;
 
             switch (keyword.UseMode)
             {
-                case DynamicKeywordUseMode.Required:
-                case DynamicKeywordUseMode.Optional:
-                    return _countOfKeywordUse[keyword] == 1;
-
                 case DynamicKeywordUseMode.RequiredMany:
                 case DynamicKeywordUseMode.OptionalMany:
                     return true;
+
+                case DynamicKeywordUseMode.Required:
+                case DynamicKeywordUseMode.Optional:
+                    return false;
 
                 default:
                     throw new PSArgumentOutOfRangeException(nameof(keyword.UseMode));
@@ -286,8 +286,9 @@ namespace System.Management.Automation.Language
             }
             else
             {
+                Diagnostics.Assert(t_dslCurrentScope.IsTopLevelScope && DslScopeStack.Count == 0,
+                                   "Reset should only be called when it's at the top-level scope.");
                 t_dslCurrentScope = new DslScope();
-                t_dslScopeStack.Clear();
             }
         }
 
@@ -333,7 +334,7 @@ namespace System.Management.Automation.Language
                 // DSL-TODO: error message
                 throw PSTraceSource.NewInvalidOperationException();
             }
-            t_dslScopeStack.Push(t_dslCurrentScope);
+            DslScopeStack.Push(t_dslCurrentScope);
             t_dslCurrentScope = new DslScope(enclosingKeyword);
         }
 
@@ -347,7 +348,7 @@ namespace System.Management.Automation.Language
                 // DSL-TODO: error message
                 throw PSTraceSource.NewInvalidOperationException();
             }
-            t_dslCurrentScope = t_dslScopeStack.Pop();
+            t_dslCurrentScope = DslScopeStack.Pop();
         }
 
         /// <summary>
