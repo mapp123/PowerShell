@@ -1271,6 +1271,7 @@ namespace System.Management.Automation.Language
             if (etwEnabled) ParserEventSource.Log.ResolveSymbolsStart();
 
             SymbolResolver.ResolveSymbols(parser, this);
+            DslKeywordResolver.ResolveKeywords(parser, this);
             if (etwEnabled)
             {
                 ParserEventSource.Log.ResolveSymbolsStop();

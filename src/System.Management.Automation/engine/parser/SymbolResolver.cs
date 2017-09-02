@@ -154,12 +154,12 @@ namespace System.Management.Automation.Language
         }
     }
 
-    internal class SymbolTable
+    internal abstract class ParsingBaseTable
     {
         internal readonly List<Scope> _scopes;
         internal readonly Parser _parser;
 
-        internal SymbolTable(Parser parser)
+        internal ParsingBaseTable(Parser parser)
         {
             _scopes = new List<Scope>();
             _parser = parser;
@@ -176,6 +176,15 @@ namespace System.Management.Automation.Language
             {
                 AddType((TypeDefinitionAst)type);
             }
+        }
+
+        /// <summary>
+        /// Add Type to the symbol Table.
+        /// </summary>
+        /// <param name="typeDefinitionAst"></param>
+        internal void AddType(TypeDefinitionAst typeDefinitionAst)
+        {
+            _scopes[_scopes.Count - 1].AddType(_parser, typeDefinitionAst);
         }
 
         internal void EnterScope(IParameterMetadataProvider ast, ScopeType scopeType)
@@ -199,53 +208,20 @@ namespace System.Management.Automation.Language
         }
 
         /// <summary>
-        /// Add Type to the symbol Table.
-        /// </summary>
-        /// <param name="typeDefinitionAst"></param>
-        public void AddType(TypeDefinitionAst typeDefinitionAst)
-        {
-            _scopes[_scopes.Count - 1].AddType(_parser, typeDefinitionAst);
-        }
-
-        /// <summary>
         /// Add Type from the different module to the symbol Table.
         /// </summary>
         /// <param name="typeDefinitionAst"></param>
         /// <param name="moduleInfo"></param>
-        public void AddTypeFromUsingModule(TypeDefinitionAst typeDefinitionAst, PSModuleInfo moduleInfo)
+        internal void AddTypeFromUsingModule(TypeDefinitionAst typeDefinitionAst, PSModuleInfo moduleInfo)
         {
             _scopes[_scopes.Count - 1].AddTypeFromUsingModule(_parser, typeDefinitionAst, moduleInfo);
-        }
-
-        public TypeLookupResult LookupType(TypeName typeName)
-        {
-            TypeLookupResult result = null;
-            for (int i = _scopes.Count - 1; i >= 0; i--)
-            {
-                result = _scopes[i].LookupType(typeName);
-                if (result != null)
-                    break;
-            }
-            return result;
-        }
-
-        public Ast LookupVariable(VariablePath variablePath)
-        {
-            Ast result = null;
-            for (int i = _scopes.Count - 1; i >= 0; i--)
-            {
-                result = _scopes[i].LookupVariable(variablePath);
-                if (result != null)
-                    break;
-            }
-            return result;
         }
 
         /// <summary>
         /// Return the most deep typeDefinitionAst in the current context.
         /// </summary>
         /// <returns>typeDefinitionAst or null, if currently not in type definition</returns>
-        public TypeDefinitionAst GetCurrentTypeDefinitionAst()
+        internal TypeDefinitionAst GetCurrentTypeDefinitionAst()
         {
             for (int i = _scopes.Count - 1; i >= 0; i--)
             {
@@ -259,9 +235,48 @@ namespace System.Management.Automation.Language
             return null;
         }
 
-        public bool IsInMethodScope()
+        internal bool IsInMethodScope()
         {
             return _scopes[_scopes.Count - 1]._scopeType == ScopeType.Method;
+        }
+
+        internal virtual TypeLookupResult LookupType(TypeName typeName)
+        {
+            throw PSTraceSource.NewNotImplementedException();
+        }
+
+        internal virtual Ast LookupVariable(VariablePath variablePath)
+        {
+            throw PSTraceSource.NewNotImplementedException();
+        }
+    }
+
+    internal class SymbolTable : ParsingBaseTable
+    {
+        internal SymbolTable(Parser parser) : base(parser) { }
+
+        internal override TypeLookupResult LookupType(TypeName typeName)
+        {
+            TypeLookupResult result = null;
+            for (int i = _scopes.Count - 1; i >= 0; i--)
+            {
+                result = _scopes[i].LookupType(typeName);
+                if (result != null)
+                    break;
+            }
+            return result;
+        }
+
+        internal override Ast LookupVariable(VariablePath variablePath)
+        {
+            Ast result = null;
+            for (int i = _scopes.Count - 1; i >= 0; i--)
+            {
+                result = _scopes[i].LookupVariable(variablePath);
+                if (result != null)
+                    break;
+            }
+            return result;
         }
     }
 
@@ -678,7 +693,6 @@ namespace System.Management.Automation.Language
         {
             ast.Accept(_symbolResolvePostActionVisitor);
         }
-
 
         internal static string GetModuleQualifiedName(string namespaceName, string typeName)
         {
