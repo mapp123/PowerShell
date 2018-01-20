@@ -3086,6 +3086,84 @@ namespace System.Management.Automation
             return result.ToArray();
         }
 
+        internal static object MultiplyICollection<T>(ExecutionContext context, ICollection<T> lhs, uint times)
+        {
+            if (times == 1 || lhs.Count == 0)
+            {
+                return lhs;
+            }
+
+            if (times == 0)
+            {
+                lhs.Clear();
+                return lhs;
+            }
+
+            if (context != null &&
+                context.LanguageMode == PSLanguageMode.RestrictedLanguage && (lhs.Count * times) > 1024)
+            {
+                throw InterpreterError.NewInterpreterException(times, typeof(RuntimeException),
+                    null, "ArrayMultiplyToolongInDataSection", ParserStrings.ArrayMultiplyToolongInDataSection, 1024);
+            }
+
+            var uncheckedLength = lhs.Count * times;
+            try
+            {
+                _ = checked((int)uncheckedLength);
+            }
+            catch (OverflowException)
+            {
+                LanguagePrimitives.ThrowInvalidCastException(uncheckedLength, typeof(int));
+            }
+
+            T[] items = new T[lhs.Count];
+            lhs.CopyTo(items, 0);
+            for (int i = 0; i < times-1; i++)
+                for (int j = 0; j < items.Length; j++)
+                    lhs.Add(items[j]);
+
+            return lhs;
+        }
+
+        internal static object MultiplyIList(ExecutionContext context, IList lhs, uint times)
+        {
+            if (times == 1 || lhs.Count == 0)
+            {
+                return lhs;
+            }
+
+            if (times == 0)
+            {
+                lhs.Clear();
+                return lhs;
+            }
+
+            if (context != null &&
+                context.LanguageMode == PSLanguageMode.RestrictedLanguage && (lhs.Count * times) > 1024)
+            {
+                throw InterpreterError.NewInterpreterException(times, typeof(RuntimeException),
+                    null, "ArrayMultiplyToolongInDataSection", ParserStrings.ArrayMultiplyToolongInDataSection, 1024);
+            }
+
+            var uncheckedLength = lhs.Count * times;
+            try
+            {
+                _ = checked((int)uncheckedLength);
+            }
+            catch (OverflowException)
+            {
+                LanguagePrimitives.ThrowInvalidCastException(uncheckedLength, typeof(int));
+            }
+
+            object[] items = new object[lhs.Count];
+            lhs.CopyTo(items, 0);
+            for (int i = 0; i < times-1; i++)
+                for (int j = 0; j < items.Length; j++)
+                    lhs.Add(items[j]);
+
+            return lhs;
+        }
+
         internal static object Multiply(IEnumerator enumerator, uint times)
         {
             var fakeEnumerator = enumerator as NonEnumerableObjectEnumerator;
@@ -3293,6 +3371,24 @@ namespace System.Management.Automation
             return ParserOps.ImplicitOp(fakeEnumerator.GetNonEnumerableObject(),
                                         fakeEnumerator2 != null ? fakeEnumerator2.GetNonEnumerableObject() : rhs,
                                         "op_Addition", null, "+");
+        }
+
+        internal static object AddEnumerableToICollection<T>(ExecutionContext context, ICollection<T> lhs, IEnumerator rhs)
+        {
+            while (MoveNext(context, rhs))
+            {
+                lhs.Add((T)Current(rhs));
+            }
+            return lhs;
+        }
+
+        internal static object AddEnumerableToIList(ExecutionContext context, IList lhs, IEnumerator rhs)
+        {
+            while (MoveNext(context, rhs))
+            {
+                lhs.Add(Current(rhs));
+            }
+            return lhs;
         }
 
         internal static object AddEnumerable(ExecutionContext context, IEnumerator lhs, IEnumerator rhs)

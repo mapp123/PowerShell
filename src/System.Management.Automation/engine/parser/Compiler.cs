@@ -92,6 +92,10 @@ namespace System.Management.Automation.Language
         internal static readonly MethodInfo Debugger_OnSequencePointHit =
             typeof(ScriptDebugger).GetMethod(nameof(ScriptDebugger.OnSequencePointHit), instanceFlags);
 
+        internal static readonly MethodInfo EnumerableOps_AddEnumerableToICollection =
+            typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.AddEnumerableToICollection), staticFlags);
+        internal static readonly MethodInfo EnumerableOps_AddEnumerableToIList =
+            typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.AddEnumerableToIList), staticFlags);
         internal static readonly MethodInfo EnumerableOps_AddEnumerable =
             typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.AddEnumerable), staticFlags);
         internal static readonly MethodInfo EnumerableOps_AddObject =
@@ -116,6 +120,10 @@ namespace System.Management.Automation.Language
             typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.ForEach), staticFlags);
         internal static readonly MethodInfo EnumerableOps_MoveNext =
             typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.MoveNext), staticFlags);
+        internal static readonly MethodInfo EnumerableOps_MultiplyICollection =
+            typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.MultiplyICollection), staticFlags);
+        internal static readonly MethodInfo EnumerableOps_MultiplyIList =
+            typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.MultiplyIList), staticFlags);
         internal static readonly MethodInfo EnumerableOps_Multiply =
             typeof(EnumerableOps).GetMethod(nameof(EnumerableOps.Multiply), staticFlags);
         internal static readonly MethodInfo EnumerableOps_PropertyGetter =
@@ -815,12 +823,13 @@ namespace System.Management.Automation.Language
         {
             IAssignableValue av = left.GetAssignableValue();
             ExpressionType et = ExpressionType.Extension;
+            bool isSpecial = false;
             switch (tokenKind)
             {
                 case TokenKind.Equals: return av.SetValue(this, right);
-                case TokenKind.PlusEquals: et = ExpressionType.Add; break;
+                case TokenKind.PlusEquals: et = ExpressionType.Add; isSpecial = true; break;
                 case TokenKind.MinusEquals: et = ExpressionType.Subtract; break;
-                case TokenKind.MultiplyEquals: et = ExpressionType.Multiply; break;
+                case TokenKind.MultiplyEquals: et = ExpressionType.Multiply; isSpecial = true; break;
                 case TokenKind.DivideEquals: et = ExpressionType.Divide; break;
                 case TokenKind.RemainderEquals: et = ExpressionType.Modulo; break;
             }
@@ -828,7 +837,8 @@ namespace System.Management.Automation.Language
             var exprs = new List<Expression>();
             var temps = new List<ParameterExpression>();
             var getExpr = av.GetValue(this, exprs, temps);
-            exprs.Add(av.SetValue(this, DynamicExpression.Dynamic(PSBinaryOperationBinder.Get(et), typeof(object), getExpr, right)));
+            var binaryOpBinder = PSBinaryOperationBinder.Get(operation: et, shorthandAssignment: isSpecial);
+            exprs.Add(av.SetValue(this, DynamicExpression.Dynamic(binaryOpBinder, typeof(object), getExpr, right)));
             return Expression.Block(temps, exprs);
         }
 

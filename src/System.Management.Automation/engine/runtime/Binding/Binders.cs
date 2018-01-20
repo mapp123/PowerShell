@@ -648,7 +648,7 @@ namespace System.Management.Automation.Language
 
                 foreach (var i in targetValue.GetType().GetInterfaces())
                 {
-                    if (i.GetTypeInfo().IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                    if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>))
                     {
                         return (new DynamicMetaObject(
                             MaybeDebase(this, e => Expression.Call(
@@ -2079,18 +2079,18 @@ namespace System.Management.Automation.Language
     {
         #region Constructors and factory methods
 
-        private static readonly Dictionary<Tuple<ExpressionType, bool, bool>, PSBinaryOperationBinder> s_binderCache =
-            new Dictionary<Tuple<ExpressionType, bool, bool>, PSBinaryOperationBinder>();
+        private static readonly Dictionary<Tuple<ExpressionType, bool, bool, bool>, PSBinaryOperationBinder> s_binderCache =
+            new Dictionary<Tuple<ExpressionType, bool, bool, bool>, PSBinaryOperationBinder>();
 
-        internal static PSBinaryOperationBinder Get(ExpressionType operation, bool ignoreCase = true, bool scalarCompare = false)
+        internal static PSBinaryOperationBinder Get(ExpressionType operation, bool ignoreCase = true, bool scalarCompare = false, bool shorthandAssignment = false)
         {
             PSBinaryOperationBinder result;
             lock (s_binderCache)
             {
-                var key = Tuple.Create(operation, ignoreCase, scalarCompare);
+                var key = Tuple.Create(operation, ignoreCase, scalarCompare, shorthandAssignment);
                 if (!s_binderCache.TryGetValue(key, out result))
                 {
-                    result = new PSBinaryOperationBinder(operation, ignoreCase, scalarCompare);
+                    result = new PSBinaryOperationBinder(operation, ignoreCase, scalarCompare, shorthandAssignment);
                     s_binderCache.Add(key, result);
                 }
             }
@@ -2099,13 +2099,15 @@ namespace System.Management.Automation.Language
 
         private readonly bool _ignoreCase;
         private readonly bool _scalarCompare;
+        private readonly bool _shorthandAssignment;
         internal int _version;
 
-        private PSBinaryOperationBinder(ExpressionType operation, bool ignoreCase, bool scalarCompare)
+        private PSBinaryOperationBinder(ExpressionType operation, bool ignoreCase, bool scalarCompare, bool shorthandAssignment)
             : base(operation)
         {
             _ignoreCase = ignoreCase;
             _scalarCompare = scalarCompare;
+            _shorthandAssignment = shorthandAssignment;
             this._version = 0;
         }
 
@@ -2650,10 +2652,68 @@ namespace System.Management.Automation.Language
             var lhsEnumerator = PSEnumerableBinder.IsEnumerable(target);
             if (lhsEnumerator != null)
             {
-                // target is enumerable, so we're creating a new array.
+                // The target is enumerable, so
+                //  - For non-shorthand-assignment case, we are creating a new array;
+                //  - For shorthand-assignment case, we will try adding RHS to LHS if it's possible before creating a new array.
 
                 var rhsEnumerator = PSEnumerableBinder.IsEnumerable(arg);
-                Expression call;
+                Expression call = null;
+
+                if (_shorthandAssignment)
+                {
+                    var addMethod = GetAddMethodFromCollectionType(target, out Type elementType, out Type interfaceType);
+                    if (addMethod != null)
+                    {
+                        // The target is an instance of a collection type that either implements 'ICollection<T>' with a public 'Add(T)' method,
+                        // or implements 'IList' with a public 'Add(Object)' method. We add the right-hand side to the collection in this case.
+                        if (elementType == typeof(object) || elementType.IsAssignableFrom(GetIEnumerableElementType(arg.LimitType)))
+                        {
+                            // Cover two scenarios:
+                            //  - LHS: List<object>; RHS: either an enumerable or a scalar value
+                            //  - LHS: List<A>;      RHS: List<B>; where A is assignable from B
+                            if (rhsEnumerator != null)
+                            {
+                                var methodToUse = interfaceType == typeof(IList)
+                                    ? CachedReflectionInfo.EnumerableOps_AddEnumerableToIList
+                                    : CachedReflectionInfo.EnumerableOps_AddEnumerableToICollection.MakeGenericMethod(elementType);
+                                call = Expression.Call(methodToUse,
+                                                    ExpressionCache.GetExecutionContextFromTLS,
+                                                    target.Expression.Cast(interfaceType),
+                                                    rhsEnumerator.Expression.Cast(typeof(IEnumerator)));
+                            }
+                            else
+                            {
+                                call = Expression.Block(
+                                        Expression.Call(target.Expression.Cast(interfaceType),
+                                                        addMethod,
+                                                        arg.Expression.Cast(elementType)),
+                                        target.Expression.Cast(typeof(object)));
+                            }
+                        }
+                        else if (elementType.IsAssignableFrom(arg.LimitType))
+                        {
+                            // - LHS: List<A>; RHS: B; where A is assignable from B.
+                            // B could be an enumerable, but we add the whole B to List<A> in this case.
+                            call = Expression.Block(
+                                    Expression.Call(target.Expression.Cast(interfaceType),
+                                                    addMethod,
+                                                    arg.Expression.Cast(elementType)),
+                                    target.Expression.Cast(typeof(object)));
+                        }
+
+                        if (call != null)
+                        {
+                            return new DynamicMetaObject(
+                                call, target.CombineRestrictions(arg).Merge(
+                                        BindingRestrictions.GetExpressionRestriction(
+                                            Expression.Equal(
+                                                Expression.Property(target.Expression.Cast(interfaceType),
+                                                                    nameof(IList.IsReadOnly)),
+                                                ExpressionCache.FalseConstant))));
+                        }
+                    }
+                }
+
                 if (rhsEnumerator != null)
                 {
                     // Adding 2 lists
@@ -2690,6 +2750,60 @@ namespace System.Management.Automation.Language
             }
 
             return CallImplicitOp("op_Addition", target, arg, "+", errorSuggestion);
+        }
+
+        // Check the target type to see if it has a 'Add' method either from 'ICollection<T>' or 'IList'
+        private MethodInfo GetAddMethodFromCollectionType(DynamicMetaObject target, out Type elementType, out Type interfaceType)
+        {
+            Type targetType = target.LimitType;
+            MethodInfo addMethod = null;
+            elementType = null;
+            interfaceType = null;
+
+            // Array implements ICollection<T> and IList, but it's immutable
+            if (targetType.IsArray) { return addMethod; }
+
+            Type iList = typeof(IList);
+            Type iCollectionTypeDef = typeof(ICollection<>);
+
+            Type iCollectionMadeType = targetType.GetInterface(iCollectionTypeDef.Name);
+            if (iCollectionMadeType?.GetGenericTypeDefinition() == iCollectionTypeDef)
+            {
+                interfaceType = iCollectionMadeType;
+                elementType = iCollectionMadeType.GetGenericArguments()[0];
+            }
+            else if (iList.IsAssignableFrom(targetType))
+            {
+                interfaceType = iList;
+                elementType = typeof(object);
+            }
+
+            if (interfaceType != null)
+            {
+                // Get the 'Add' method only if it's not readonly
+                var isReadOnlyProperty = interfaceType.GetProperty(nameof(IList.IsReadOnly));
+                var isReadOnly = (bool)isReadOnlyProperty.GetValue(target.Value);
+                if (!isReadOnly) { addMethod = interfaceType.GetMethod(nameof(IList.Add)); }
+            }
+            return addMethod;
+        }
+
+        // Check the target type to see if it implements 'IEnumerable<>' and get the type argument if so.
+        private Type GetIEnumerableElementType(Type targetType)
+        {
+            // PowerShell doesn't treat string and dictionary as enumerable by default
+            if (targetType == typeof(string) || typeof(IDictionary).IsAssignableFrom(targetType)) { return null; }
+
+            Type iEnumerableTypeDef = typeof(IEnumerable<>);
+            Type iEnumerableMadeType = targetType.GetInterface(iEnumerableTypeDef.Name);
+
+            Type elementType = null;
+            if (iEnumerableMadeType?.GetGenericTypeDefinition() == iEnumerableTypeDef)
+            {
+                elementType = iEnumerableMadeType.GetGenericArguments()[0];
+            }
+
+            return elementType;
         }
 
         private DynamicMetaObject BinarySub(DynamicMetaObject target, DynamicMetaObject arg, DynamicMetaObject errorSuggestion)
@@ -2739,12 +2853,36 @@ namespace System.Management.Automation.Language
                                          ? ConvertStringToNumber(arg.Expression, typeof(int)).Convert(typeof(uint))
                                          : arg.CastOrConvert(typeof(uint));
 
+                if (_shorthandAssignment)
+                {
+                    var addMethod = GetAddMethodFromCollectionType(target, out Type elementType, out Type interfaceType);
+                    if (addMethod != null)
+                    {
+                        // The target is an instance of a collection type that either implements 'ICollection<T>' with a public 'Add(T)' method,
+                        // or implements 'IList' with a public 'Add(Object)' method. We multiply the collection in place in this case.
+                        var methodToUes = interfaceType == typeof(IList)
+                            ? CachedReflectionInfo.EnumerableOps_MultiplyIList
+                            : CachedReflectionInfo.EnumerableOps_MultiplyICollection.MakeGenericMethod(elementType);
+                        return new DynamicMetaObject(
+                            Expression.Call(methodToUes,
+                                            ExpressionCache.GetExecutionContextFromTLS,
+                                            target.Expression.Cast(interfaceType),
+                                            argExpr),
+                            target.CombineRestrictions(arg).Merge(
+                                BindingRestrictions.GetExpressionRestriction(
+                                    Expression.Equal(
+                                        Expression.Property(target.Expression.Cast(interfaceType),
+                                                            nameof(IList.IsReadOnly)),
+                                        ExpressionCache.FalseConstant))));
+                    }
+                }
+
                 if (target.LimitType.IsArray)
                 {
                     var elementType = target.LimitType.GetElementType();
                     return new DynamicMetaObject(
                         Expression.Call(CachedReflectionInfo.ArrayOps_Multiply.MakeGenericMethod(elementType),
-                                        target.Expression.Cast(elementType.MakeArrayType()),
+                                        target.Expression.Cast(target.LimitType),
                                         argExpr),
                         target.CombineRestrictions(arg));
                 }
