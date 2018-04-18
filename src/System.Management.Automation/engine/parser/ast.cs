@@ -7863,17 +7863,6 @@ namespace System.Management.Automation.Language
                 Type type = _typeDefinitionAst != null ? _typeDefinitionAst.Type : TypeResolver.ResolveTypeName(this, out e);
                 if (type != null)
                 {
-                    try
-                    {
-                        var unused = type.TypeHandle;
-                    }
-                    catch (NotSupportedException)
-                    {
-                        // If the value of 'type' comes from typeBuilder.AsType(), then the value of 'type.GetTypeInfo()'
-                        // is actually the TypeBuilder instance itself. This is the same on both FullCLR and CoreCLR.
-                        Diagnostics.Assert(_typeDefinitionAst != null, "_typeDefinitionAst can never be null");
-                        return type;
-                    }
                     Interlocked.CompareExchange(ref _type, type, null);
                 }
             }

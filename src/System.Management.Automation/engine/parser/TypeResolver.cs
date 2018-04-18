@@ -534,12 +534,12 @@ namespace System.Management.Automation.Language
         /// </summary>
         /// <param name="types"></param>
         /// <returns></returns>
-        internal TypeResolutionState CloneWithAddTypesDefined(IEnumerable<string> types)
+        internal TypeResolutionState CloneWithAddTypesDefined(IEnumerable<TypeDefinitionAst> types)
         {
             var newTypesDefined = new HashSet<string>(_typesDefined, StringComparer.OrdinalIgnoreCase);
             foreach (var type in types)
             {
-                newTypesDefined.Add(type);
+                newTypesDefined.Add(type.Name);
             }
 
             return new TypeResolutionState(this, newTypesDefined);

@@ -2190,45 +2190,31 @@ namespace System.Management.Automation.Language
 
         private void GenerateTypesAndUsings(ScriptBlockAst rootForDefiningTypesAndUsings, List<Expression> exprs)
         {
-            // We don't postpone load assemblies, import modules from 'using' to the moment, when enclosed scriptblock is executed.
-            // We do loading, when root of the script is compiled.
-            // This allow us to avoid creating 10 different classes in this situation:
-            // 1..10 | ForEach-Object { class C {} }
-            // But it's possible that we are loading something from the codepaths that we never execute.
-
             // If Parent of rootForDefiningTypesAndUsings is not null, then we already defined all types, when Visit a parent ScriptBlock
-            if (rootForDefiningTypesAndUsings.Parent == null)
+            if (rootForDefiningTypesAndUsings.UsingStatements.Any())
             {
-                if (rootForDefiningTypesAndUsings.UsingStatements.Any())
-                {
-                    bool allUsingsAreNamespaces = rootForDefiningTypesAndUsings.UsingStatements.All(us => us.UsingStatementKind == UsingStatementKind.Namespace);
-                    GenerateLoadUsings(rootForDefiningTypesAndUsings.UsingStatements, allUsingsAreNamespaces, exprs);
-                }
-
-                TypeDefinitionAst[] typeAsts =
-                    rootForDefiningTypesAndUsings.FindAll(ast => ast is TypeDefinitionAst, true)
-                        .Cast<TypeDefinitionAst>()
-                        .ToArray();
-
-                if (typeAsts.Length > 0)
-                {
-                    var assembly = DefinePowerShellTypes(rootForDefiningTypesAndUsings, typeAsts);
-                    exprs.Add(Expression.Call(CachedReflectionInfo.TypeOps_SetAssemblyDefiningPSTypes,
-                        _functionContext, Expression.Constant(assembly)));
-
-                    exprs.Add(Expression.Call(CachedReflectionInfo.TypeOps_InitPowerShellTypesAtRuntime,
-                        Expression.Constant(typeAsts)));
-                }
+                bool allUsingsAreNamespaces = rootForDefiningTypesAndUsings.UsingStatements.All(us => us.UsingStatementKind == UsingStatementKind.Namespace);
+                GenerateLoadUsings(rootForDefiningTypesAndUsings.UsingStatements, allUsingsAreNamespaces, exprs);
             }
 
-            Dictionary<string, TypeDefinitionAst> typesToAddToScope =
-                rootForDefiningTypesAndUsings.FindAll(ast => ast is TypeDefinitionAst, false)
+            TypeDefinitionAst[] typeAsts =
+                rootForDefiningTypesAndUsings.FindAll(ast => ast is TypeDefinitionAst, searchNestedScriptBlocks: false)
                     .Cast<TypeDefinitionAst>()
-                    .ToDictionary(type => type.Name);
-            if (typesToAddToScope.Count > 0)
+                    .ToArray();
+
+            if (typeAsts.Length > 0)
             {
+                // Emit the dynamic types at the compilation time only, so the following won't generate
+                // class 'Foo' 10 times, because the '{ class Foo {} }' will only be compiled once.
+                //     1..10 | % { class Foo {} }
+                var assembly = DefinePowerShellTypes(rootForDefiningTypesAndUsings, typeAsts);
+
+                exprs.Add(Expression.Call(CachedReflectionInfo.TypeOps_SetAssemblyDefiningPSTypes,
+                    _functionContext, Expression.Constant(assembly)));
+                exprs.Add(Expression.Call(CachedReflectionInfo.TypeOps_InitPowerShellTypesAtRuntime,
+                    Expression.Constant(typeAsts)));
                 exprs.Add(Expression.Call(CachedReflectionInfo.TypeOps_AddPowerShellTypesToTheScope,
-                    Expression.Constant(typesToAddToScope), _executionContextParameter));
+                    Expression.Constant(typeAsts), _executionContextParameter));
             }
         }
 
@@ -2271,20 +2257,26 @@ namespace System.Management.Automation.Language
         /// <returns>Assembly with defined types</returns>
         internal static Assembly DefinePowerShellTypes(Ast rootForDefiningTypes, TypeDefinitionAst[] typeAsts)
         {
-            // TODO(sevoroby): this Diagnostic is conceptually right.
-            // BUT It triggers, when we define type in an InitialSessionState and use it later in two different PowerShell instances.
-            // Diagnostics.Assert(typeAsts[0].Type == null, "We must not call DefinePowerShellTypes twice for the same TypeDefinitionAsts");
-
             if (typeAsts[0].Type != null)
             {
-                // We treat Type as a mutable buffer field and wipe it here to start definitions from scratch.
+                // Usually, the type is not emitted until the enclosing script block is compiled
+                // (when it's about to run for the first time), but it could have been generated
+                // already, which could happen in following cases:
+                //  1. The same AST is used to create different script blocks, like:
+                //      $a = [scriptblock]::Create("class Foo {}");
+                //      & $a
+                //      $b = $a.Ast.GetScriptBlock();
+                //      & $b
+                //  2. The same script block gets to run Optimized and Unoptimized.
+                //     In this case, the script block will be compiled twice, and it will find
+                //     the typeDefinitionAst.Type property is not null in the second compilation.
 
-                // I didn't find any real scenario when it can cause problems, except multi-threaded environment, which is rear and out-of-scope for now.
-                // Potentially, we can fix it with Ast.Copy() and rewiring ITypeName references for the whole tree.
-                foreach (var typeDefinitionAst in typeAsts)
-                {
-                    typeDefinitionAst.Type = null;
-                }
+                // I think we should reuse the already emitted type/assembly in this case.
+                // The only possible issue I can think of is when you have 'using module/assembly'
+                // used and the module/assembly were changed before the second compilation.
+                // In that case, the second compilation won't pick up the changes.
+
+                return typeAsts[0].Type.Assembly;
             }
 
             // This is a short term solution - all error messages produced by creating the types should happen

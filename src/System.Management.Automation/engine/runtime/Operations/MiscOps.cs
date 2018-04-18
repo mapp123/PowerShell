@@ -2163,17 +2163,17 @@ namespace System.Management.Automation
         /// </summary>
         /// <param name="types"></param>
         /// <param name="context"></param>
-        internal static void AddPowerShellTypesToTheScope(Dictionary<string, TypeDefinitionAst> types, ExecutionContext context)
+        internal static void AddPowerShellTypesToTheScope(TypeDefinitionAst[] types, ExecutionContext context)
         {
             var trs = context.EngineSessionState.CurrentScope.TypeResolutionState;
 
             foreach (var t in types)
             {
-                Diagnostics.Assert(t.Value.Type != null, "TypeDefinitionAst.Type cannot be null");
-                context.EngineSessionState.CurrentScope.AddType(t.Key, t.Value.Type);
+                Diagnostics.Assert(t.Type != null, "TypeDefinitionAst.Type cannot be null");
+                context.EngineSessionState.CurrentScope.AddType(t.Name, t.Type);
             }
 
-            context.EngineSessionState.CurrentScope.TypeResolutionState = trs.CloneWithAddTypesDefined(types.Keys);
+            context.EngineSessionState.CurrentScope.TypeResolutionState = trs.CloneWithAddTypesDefined(types);
         }
 
         /// <summary>
