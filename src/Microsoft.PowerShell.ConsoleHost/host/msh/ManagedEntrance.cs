@@ -27,9 +27,10 @@ namespace Microsoft.PowerShell
         /// <param name="args">
         /// Command line arguments to the managed MSH
         /// </param>
-#pragma warning disable 1573
+        /// <param name="argc">
+        /// Length of the passed in argument array.
+        /// </param>
         public static int Start(string consoleFilePath, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPWStr, SizeParamIndex = 2)]string[] args, int argc)
-#pragma warning restore 1573
         {
             // We need to read the settings file before we create the console host
             Microsoft.PowerShell.CommandLineParameterParser.EarlyParse(args);
@@ -67,12 +68,12 @@ namespace Microsoft.PowerShell
             int exitCode = 0;
             try
             {
-                var banner = ManagedEntranceStrings.ShellBannerNonWindowsPowerShell;
-                var formattedBanner = string.Format(CultureInfo.InvariantCulture, banner, PSVersionInfo.GitCommitId);
-                exitCode = Microsoft.PowerShell.ConsoleShell.Start(
-                    formattedBanner,
-                    ManagedEntranceStrings.UsageHelp,
-                    args);
+                var banner = string.Format(
+                    CultureInfo.InvariantCulture,
+                    ManagedEntranceStrings.ShellBannerNonWindowsPowerShell,
+                    PSVersionInfo.GitCommitId);
+
+                exitCode = Microsoft.PowerShell.ConsoleShell.Start(banner, ManagedEntranceStrings.UsageHelp, args);
             }
             catch (System.Management.Automation.Host.HostException e)
             {

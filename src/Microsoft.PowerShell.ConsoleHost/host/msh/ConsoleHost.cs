@@ -54,8 +54,6 @@ namespace Microsoft.PowerShell
         internal const int ExitCodeInitFailure = 70; // Internal Software Error
         internal const int ExitCodeBadCommandLineParameter = 64; // Command Line Usage Error
 
-        // NTRAID#Windows Out Of Band Releases-915506-2005/09/09
-        // Removed HandleUnexpectedExceptions infrastructure
         /// <summary>
         /// Internal Entry point in msh console host implementation.
         /// </summary>
@@ -71,7 +69,7 @@ namespace Microsoft.PowerShell
         /// <returns>
         /// The exit code for the shell.
         ///
-        /// NTRAID#Windows OS Bugs-1036968-2005/01/20-sburns The behavior here is related to monitor work.  The low word of the
+        /// The behavior here is related to monitor work.  The low word of the
         /// exit code is available for the user.  The high word is reserved for the shell and monitor.
         ///
         /// The shell process needs to return:
@@ -91,13 +89,10 @@ namespace Microsoft.PowerShell
         /// or 0xFFFE0000 (user hit ctrl-break), the monitor should restart the shell.exe. Otherwise, the monitor should exit
         /// with the same exit code as the shell.exe.
         ///
-        /// Anyone checking the exit code of the shell or monitor can mask off the hiword to determine the exit code passed
+        /// Anyone checking the exit code of the shell or monitor can mask off the high word to determine the exit code passed
         /// by the script that the shell last executed.
         /// </returns>
-        internal static int Start(
-            string bannerText,
-            string helpText,
-            string[] args)
+        internal static int Start(string bannerText, string helpText, string[] args)
         {
 #if DEBUG
             if (Environment.GetEnvironmentVariable("POWERSHELL_DEBUG_STARTUP") != null)
@@ -159,10 +154,8 @@ namespace Microsoft.PowerShell
                     hostException = e;
                 }
 
-                s_cpp = new CommandLineParameterParser(
-                    (s_theConsoleHost != null) ? s_theConsoleHost.UI : (new NullHostUserInterface()),
-                    bannerText, helpText);
-
+                var hostUi = s_theConsoleHost?.UI ?? new NullHostUserInterface();
+                s_cpp = new CommandLineParameterParser(hostUi, bannerText, helpText);
                 s_cpp.Parse(args);
 
 #if UNIX
@@ -1386,23 +1379,6 @@ namespace Microsoft.PowerShell
             while (false);
 
             return exitCode;
-        }
-
-        /// <summary>
-        /// This method is retained to make V1 tests compatible with V2 as signature of this method
-        /// is slightly changed in v2.
-        /// </summary>
-        /// <param name="bannerText"></param>
-        /// <param name="helpText"></param>
-        /// <param name="isPrestartWarned"></param>
-        /// <param name="args"></param>
-        /// <returns></returns>
-        [SuppressMessage("Microsoft.Performance", "CA1811:AvoidUncalledPrivateCode")]
-        private uint Run(string bannerText, string helpText, bool isPrestartWarned, string[] args)
-        {
-            s_cpp = new CommandLineParameterParser(this.UI, bannerText, helpText);
-            s_cpp.Parse(args);
-            return Run(s_cpp, isPrestartWarned);
         }
 
         /// <summary>
