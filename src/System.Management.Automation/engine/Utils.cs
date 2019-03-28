@@ -80,6 +80,33 @@ namespace System.Management.Automation
         internal static string[] AllowedEditionValues = { "Desktop", "Core" };
 
         /// <summary>
+        /// Utility method to interpret the value of an opt-out environment variable.
+        /// e.g. POWERSHELL_TELEMETRY_OPTOUT and POWERSHELL_UPDATECHECK_OPTOUT
+        /// </summary>
+        internal static bool GetOptOutEnvironmentVariableAsBool(string name, bool defaultValue)
+        {
+            string str = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrEmpty(str))
+            {
+                return defaultValue;
+            }
+
+            switch (str.ToLowerInvariant())
+            {
+                case "true":
+                case "1":
+                case "yes":
+                    return true;
+                case "false":
+                case "0":
+                case "no":
+                    return false;
+                default:
+                    return defaultValue;
+            }
+        }
+
+        /// <summary>
         /// Helper fn to check byte[] arg for null.
         /// </summary>
         ///<param name="arg"> arg to check </param>
