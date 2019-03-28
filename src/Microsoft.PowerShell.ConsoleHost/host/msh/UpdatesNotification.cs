@@ -28,7 +28,7 @@ namespace Microsoft.PowerShell
         private const string SentinelFileName = "_sentinel_";
         private const string DoneFileNameTemplate = "sentinel-{0}-{1}-{2}.done";
         private const string DoneFileNamePattern = "sentinel-*.done";
-        private const string UpdateFileNameTemplate = "update_{0}_{1}-{2}-{3}";
+        private const string UpdateFileNameTemplate = "update_{0}_{1}";
         private const string UpdateFileNamePattern = "update_v*.*.*_????-??-??";
 
         internal readonly static EnumerationOptions EnumerationOptions = new EnumerationOptions();
@@ -155,9 +155,7 @@ namespace Microsoft.PowerShell
                             CultureInfo.InvariantCulture,
                             UpdateFileNameTemplate,
                             release.tag_name,
-                            release.published_at.Year.ToString(),
-                            release.published_at.Month.ToString(),
-                            release.published_at.Day.ToString());
+                            release.published_at.Substring(0, 10));
 
                         string newUpdateFilePath = Path.Combine(cacheDirectory, newUpdateFileName);
 
@@ -262,7 +260,8 @@ namespace Microsoft.PowerShell
                 using (JsonReader jsonReader = new JsonTextReader(reader))
                 {
                     Release releaseToReturn = null;
-                    JsonSerializer serializer = new JsonSerializer();
+                    var settings = new JsonSerializerSettings() { DateParseHandling = DateParseHandling.None };
+                    var serializer = JsonSerializer.Create(settings);
 
                     if (noPreRelease)
                     {
@@ -297,7 +296,8 @@ namespace Microsoft.PowerShell
 
         private class Release
         {
-            public DateTime published_at { get; set; }
+            // The datetime stamp is in UTC: 2019-03-28T18:42:02Z
+            public string published_at { get; set; }
             public string tag_name { get; set; }
             public bool prerelease { get; set; }
         }
