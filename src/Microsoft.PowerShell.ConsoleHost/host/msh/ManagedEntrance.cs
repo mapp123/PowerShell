@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 using System;
+using System.ComponentModel;
 using System.Reflection;
 using System.Management.Automation;
+using System.Management.Automation.Host;
 using System.Management.Automation.Internal;
 using System.Management.Automation.Runspaces;
 using System.Management.Automation.Tracing;
@@ -33,8 +35,8 @@ namespace Microsoft.PowerShell
         public static int Start(string consoleFilePath, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPWStr, SizeParamIndex = 2)]string[] args, int argc)
         {
             // We need to read the settings file before we create the console host
-            Microsoft.PowerShell.CommandLineParameterParser.EarlyParse(args);
-            System.Management.Automation.Runspaces.EarlyStartup.Init();
+            CommandLineParameterParser.EarlyParse(args);
+            EarlyStartup.Init();
 
 #if !UNIX
             // NOTE: On Unix, logging has to be deferred until after command-line parsing
@@ -73,13 +75,13 @@ namespace Microsoft.PowerShell
                     ManagedEntranceStrings.ShellBannerNonWindowsPowerShell,
                     PSVersionInfo.GitCommitId);
 
-                exitCode = Microsoft.PowerShell.ConsoleShell.Start(banner, ManagedEntranceStrings.UsageHelp, args);
+                exitCode = ConsoleShell.Start(banner, ManagedEntranceStrings.UsageHelp, args);
             }
-            catch (System.Management.Automation.Host.HostException e)
+            catch (HostException e)
             {
-                if (e.InnerException != null && e.InnerException.GetType() == typeof(System.ComponentModel.Win32Exception))
+                if (e.InnerException != null && e.InnerException.GetType() == typeof(Win32Exception))
                 {
-                    System.ComponentModel.Win32Exception win32e = e.InnerException as System.ComponentModel.Win32Exception;
+                    Win32Exception win32e = e.InnerException as Win32Exception;
 
                     // These exceptions are caused by killing conhost.exe
                     // 1236, network connection aborted by local system

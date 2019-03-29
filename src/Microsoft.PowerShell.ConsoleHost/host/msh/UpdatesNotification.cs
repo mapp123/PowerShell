@@ -9,6 +9,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Management.Automation;
+using System.Management.Automation.Host;
 using System.Threading.Tasks;
 
 using Newtonsoft.Json;
@@ -24,6 +25,7 @@ namespace Microsoft.PowerShell
         private const string UpdateCheckOptOutEnvVar = "POWERSHELL_UPDATECHECK_OPTOUT";
         private const string Last4ReleasesUri = "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=4";
         private const string LatestReleaseUri = "https://api.github.com/repos/PowerShell/PowerShell/releases/latest";
+        private const string ReleasePageUri = "https://github.com/PowerShell/PowerShell/releases/tag/{0}";
 
         private const string SentinelFileName = "_sentinel_";
         private const string DoneFileNameTemplate = "sentinel-{0}-{1}-{2}.done";
@@ -31,7 +33,52 @@ namespace Microsoft.PowerShell
         private const string UpdateFileNameTemplate = "update_{0}_{1}";
         private const string UpdateFileNamePattern = "update_v*.*.*_????-??-??";
 
-        internal readonly static EnumerationOptions EnumerationOptions = new EnumerationOptions();
+        private readonly static EnumerationOptions s_enumOptions;
+        private readonly static string s_cacheDirectory;
+
+        static UpdatesNotification()
+        {
+            s_enumOptions = new EnumerationOptions();
+#if UNIX
+            s_cacheDirectory = Path.Combine(
+                Platform.SelectProductNameForDirectory(Platform.XDG_Type.CACHE),
+                PSVersionInfo.GitCommitId);
+#else
+            s_cacheDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                @"Microsoft\PowerShell",
+                PSVersionInfo.GitCommitId);
+#endif
+        }
+
+        // A few things to think about:
+        //   - it might look better if we write out notification with yellow background color and black foreground color,
+        //     but padding is expensive and not reliable (console width may change)
+        //   - maybe we shouldn't do update check and show notification when it's from a mini-shell, meaning when
+        //     'ConsoleShell.Start' is not called by 'ManagedEntrance.Start'
+        //   - any possibly improvement to the console host start?
+
+        internal static void ShowUpdateNotification(PSHostUserInterface hostUI)
+        {
+            if (TryParseUpdateFile(
+                    out bool noFileFound,
+                    updateFilePath: out _,
+                    out SemanticVersion lastUpdateVersion,
+                    lastUpdateDate: out _) && !noFileFound)
+            {
+                string releaseTag = lastUpdateVersion.ToString();
+                string releaseUri = string.Format(CultureInfo.InvariantCulture, ReleasePageUri, releaseTag);
+
+                string notificationMsgTemplate = string.IsNullOrEmpty(lastUpdateVersion.PreReleaseLabel)
+                    ? ManagedEntranceStrings.OfficialReleaseUpdateNotification
+                    : ManagedEntranceStrings.PreviewReleaseUpdateNotification;
+                string notificationMsg = string.Format(CultureInfo.InvariantCulture, notificationMsgTemplate, releaseTag);
+
+                hostUI.WriteLine(notificationMsg);
+                hostUI.WriteLine(releaseUri);
+                hostUI.WriteLine();
+            }
+        }
 
         internal static async Task CheckForUpdates()
         {
@@ -52,27 +99,15 @@ namespace Microsoft.PowerShell
                 return;
             }
 
-#if UNIX
-            string cacheDirectory = Path.Combine(
-                Platform.SelectProductNameForDirectory(Platform.XDG_Type.CACHE),
-                PSVersionInfo.GitCommitId);
-#else
-            string cacheDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                @"Microsoft\PowerShell",
-                PSVersionInfo.GitCommitId);
-#endif
-
             // Create the update cache directory if it hasn't exists
-            if (!Directory.Exists(cacheDirectory))
+            if (!Directory.Exists(s_cacheDirectory))
             {
-                Directory.CreateDirectory(cacheDirectory);
+                Directory.CreateDirectory(s_cacheDirectory);
             }
 
             DateTime today = DateTime.UtcNow;
 
             if (TryParseUpdateFile(
-                    cacheDirectory,
                     out bool noFileFound,
                     updateFilePath: out _,
                     lastUpdateVersion: out _,
@@ -94,8 +129,8 @@ namespace Microsoft.PowerShell
                 today.Month.ToString(),
                 today.Day.ToString());
 
-            string sentinelFilePath = Path.Combine(cacheDirectory, SentinelFileName);
-            string todayDoneFilePath = Path.Combine(cacheDirectory, todayDoneFileName);
+            string sentinelFilePath = Path.Combine(s_cacheDirectory, SentinelFileName);
+            string todayDoneFilePath = Path.Combine(s_cacheDirectory, todayDoneFileName);
 
             if (File.Exists(todayDoneFilePath))
             {
@@ -119,13 +154,12 @@ namespace Microsoft.PowerShell
 
                     // Now it's guaranteed that I'm the only process that reaches here.
                     // Clean up the old '.done' file, there should be only one of it.
-                    foreach (string oldFile in Directory.EnumerateFiles(cacheDirectory, DoneFileNamePattern, EnumerationOptions))
+                    foreach (string oldFile in Directory.EnumerateFiles(s_cacheDirectory, DoneFileNamePattern, s_enumOptions))
                     {
                         File.Delete(oldFile);
                     }
 
                     if (!TryParseUpdateFile(
-                            cacheDirectory,
                             noFileFound: out _,
                             out string updateFilePath,
                             out SemanticVersion lastUpdateVersion,
@@ -135,7 +169,7 @@ namespace Microsoft.PowerShell
                         // or because the update file name is not in the valid format.
                         // This is **very unlikely** to happen unless the file is altered manually accidentally.
                         // We try to recover here by cleaning up all update files.
-                        foreach (string file in Directory.EnumerateFiles(cacheDirectory, UpdateFileNamePattern, EnumerationOptions))
+                        foreach (string file in Directory.EnumerateFiles(s_cacheDirectory, UpdateFileNamePattern, s_enumOptions))
                         {
                             File.Delete(file);
                         }
@@ -157,7 +191,7 @@ namespace Microsoft.PowerShell
                             release.tag_name,
                             release.published_at.Substring(0, 10));
 
-                        string newUpdateFilePath = Path.Combine(cacheDirectory, newUpdateFileName);
+                        string newUpdateFilePath = Path.Combine(s_cacheDirectory, newUpdateFileName);
 
                         if (updateFilePath == null)
                         {
@@ -181,7 +215,6 @@ namespace Microsoft.PowerShell
         }
 
         private static bool TryParseUpdateFile(
-            string cacheDirectory,
             out bool noFileFound,
             out string updateFilePath,
             out SemanticVersion lastUpdateVersion,
@@ -192,7 +225,7 @@ namespace Microsoft.PowerShell
             lastUpdateVersion = null;
             lastUpdateDate = DateTime.MinValue;
 
-            var files = Directory.EnumerateFiles(cacheDirectory, UpdateFileNamePattern, EnumerationOptions);
+            var files = Directory.EnumerateFiles(s_cacheDirectory, UpdateFileNamePattern, s_enumOptions);
             var enumerator = files.GetEnumerator();
 
             if (!enumerator.MoveNext())

@@ -124,6 +124,18 @@ Copyright (c) Microsoft Corporation. All rights reserved.
 https://aka.ms/pscore6-docs
 Type 'help' to get help.</value>
   </data>
+  <data name="PreviewReleaseUpdateNotification" xml:space="preserve">
+    <value>A new preview release of PowerShell is available: {0}
+
+Upgrade to the new version with your favorite package manager,
+or download the package from the GitHub release page:</value>
+  </data>
+  <data name="OfficialReleaseUpdateNotification" xml:space="preserve">
+    <value>A new official release of PowerShell is available: {0}
+
+Upgrade to the new version with your favorite package manager,
+or download the package from the GitHub release page:</value>
+  </data>
   <data name="UsageHelp" xml:space="preserve">
     <value>Usage: pwsh[.exe] [[-File] &lt;filePath&gt; [args]]
                   [-Command { - | &lt;script-block&gt; [-args &lt;arg-array&gt;]

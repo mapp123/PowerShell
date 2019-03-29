@@ -1023,6 +1023,7 @@ namespace Microsoft.PowerShell
             if (_showBanner && !_showHelp)
             {
                 DisplayBanner();
+                UpdatesNotification.ShowUpdateNotification(_hostUI);
             }
 
             Dbg.Assert(
