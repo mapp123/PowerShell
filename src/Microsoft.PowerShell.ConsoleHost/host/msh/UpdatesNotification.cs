@@ -13,6 +13,7 @@ using System.Management.Automation.Host;
 using System.Threading.Tasks;
 
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
 namespace Microsoft.PowerShell
@@ -188,8 +189,8 @@ namespace Microsoft.PowerShell
                         string newUpdateFileName = string.Format(
                             CultureInfo.InvariantCulture,
                             UpdateFileNameTemplate,
-                            release.tag_name,
-                            release.published_at.Substring(0, 10));
+                            release.TagName,
+                            release.PublishAt.Substring(0, 10));
 
                         string newUpdateFilePath = Path.Combine(s_cacheDirectory, newUpdateFileName);
 
@@ -298,26 +299,32 @@ namespace Microsoft.PowerShell
 
                     if (noPreRelease)
                     {
-                        var latestRelease = serializer.Deserialize<Release>(jsonReader);
-                        var version = SemanticVersion.Parse(latestRelease.tag_name.Substring(1));
+                        var release = serializer.Deserialize<JObject>(jsonReader);
+                        var tagName = release["tag_name"].ToString();
+                        var version = SemanticVersion.Parse(tagName.Substring(1));
 
                         if (version > baselineVersion)
                         {
-                            releaseToReturn = latestRelease;
+                            var publishAt = release["published_at"].ToString();
+                            releaseToReturn = new Release(publishAt, tagName);
                         }
                     }
                     else
                     {
-                        var last4Releases = serializer.Deserialize<List<Release>>(jsonReader);
+                        var last4Releases = serializer.Deserialize<JArray>(jsonReader);
                         var highestVersion = baselineVersion;
 
-                        foreach (Release release in last4Releases)
+                        for (int i=0; i < last4Releases.Count; i++)
                         {
-                            var version = SemanticVersion.Parse(release.tag_name.Substring(1));
+                            var release = last4Releases[i];
+                            var tagName = release["tag_name"].ToString();
+                            var version = SemanticVersion.Parse(tagName.Substring(1));
+
                             if (version > highestVersion)
                             {
                                 highestVersion = version;
-                                releaseToReturn = release;
+                                var publishAt = release["published_at"].ToString();
+                                releaseToReturn = new Release(publishAt, tagName);
                             }
                         }
                     }
@@ -329,10 +336,15 @@ namespace Microsoft.PowerShell
 
         private class Release
         {
+            internal Release(string publishAt, string tagName)
+            {
+                PublishAt = publishAt;
+                TagName = tagName;
+            }
+
             // The datetime stamp is in UTC: 2019-03-28T18:42:02Z
-            public string published_at { get; set; }
-            public string tag_name { get; set; }
-            public bool prerelease { get; set; }
+            internal string PublishAt { get; }
+            internal string TagName { get; }
         }
     }
 }
