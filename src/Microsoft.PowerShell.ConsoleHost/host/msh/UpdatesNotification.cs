@@ -34,23 +34,8 @@ namespace Microsoft.PowerShell
         private const string UpdateFileNameTemplate = "update_{0}_{1}";
         private const string UpdateFileNamePattern = "update_v*.*.*_????-??-??";
 
-        private readonly static EnumerationOptions s_enumOptions;
-        private readonly static string s_cacheDirectory;
-
-        static UpdatesNotification()
-        {
-            s_enumOptions = new EnumerationOptions();
-#if UNIX
-            s_cacheDirectory = Path.Combine(
-                Platform.SelectProductNameForDirectory(Platform.XDG_Type.CACHE),
-                PSVersionInfo.GitCommitId);
-#else
-            s_cacheDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                @"Microsoft\PowerShell",
-                PSVersionInfo.GitCommitId);
-#endif
-        }
+        private readonly static EnumerationOptions s_enumOptions = new EnumerationOptions();
+        private readonly static string s_cacheDirectory = Path.Combine(Utils.PowerShellCacheDirectory, PSVersionInfo.GitCommitId);
 
         // A few things to think about:
         //   - it might look better if we write out notification with yellow background color and black foreground color,

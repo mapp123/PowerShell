@@ -117,17 +117,13 @@ namespace Microsoft.PowerShell
 
             try
             {
-                string profileDir;
-#if UNIX
-                profileDir = Platform.SelectProductNameForDirectory(Platform.XDG_Type.CACHE);
-#else
-                profileDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + @"\Microsoft\PowerShell";
+                string profileDir = Utils.PowerShellCacheDirectory;
 
                 if (!Directory.Exists(profileDir))
                 {
                     Directory.CreateDirectory(profileDir);
                 }
-#endif
+
                 ClrFacade.SetProfileOptimizationRoot(profileDir);
             }
             catch
