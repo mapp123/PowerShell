@@ -24,9 +24,9 @@ namespace Microsoft.PowerShell
     internal static class UpdatesNotification
     {
         private const string UpdateCheckOptOutEnvVar = "POWERSHELL_UPDATECHECK_OPTOUT";
-        private const string Last4ReleasesUri = "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=4";
+        private const string Last4ReleasesUri = "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=3";
         private const string LatestReleaseUri = "https://api.github.com/repos/PowerShell/PowerShell/releases/latest";
-        private const string ReleasePageUri = "https://github.com/PowerShell/PowerShell/releases/tag/{0}";
+        private const string ReleasePageUri = "https://github.com/PowerShell/PowerShell/releases/tag/v{0}";
 
         private const string SentinelFileName = "_sentinel_";
         private const string DoneFileNameTemplate = "sentinel-{0}-{1}-{2}.done";
@@ -42,10 +42,14 @@ namespace Microsoft.PowerShell
         //     but padding is expensive and not reliable (console width may change)
         //   - maybe we shouldn't do update check and show notification when it's from a mini-shell, meaning when
         //     'ConsoleShell.Start' is not called by 'ManagedEntrance.Start'
-        //   - any possibly improvement to the console host start?
 
         internal static void ShowUpdateNotification(PSHostUserInterface hostUI)
         {
+            if (!Directory.Exists(s_cacheDirectory))
+            {
+                return;
+            }
+
             if (TryParseUpdateFile(
                     out bool noFileFound,
                     updateFilePath: out _,
@@ -56,13 +60,50 @@ namespace Microsoft.PowerShell
                 string releaseUri = string.Format(CultureInfo.InvariantCulture, ReleasePageUri, releaseTag);
 
                 string notificationMsgTemplate = string.IsNullOrEmpty(lastUpdateVersion.PreReleaseLabel)
-                    ? ManagedEntranceStrings.OfficialReleaseUpdateNotification
-                    : ManagedEntranceStrings.PreviewReleaseUpdateNotification;
-                string notificationMsg = string.Format(CultureInfo.InvariantCulture, notificationMsgTemplate, releaseTag);
+                    ? ManagedEntranceStrings.OfficialUpdateNotificationMsg1
+                    : ManagedEntranceStrings.PreviewUpdateNotificationMsg1;
+                string notificationMsg1 = string.Format(CultureInfo.InvariantCulture, notificationMsgTemplate, releaseTag);
+                string notificationMsg2 = ManagedEntranceStrings.UpdateNotificationMsg2;
 
-                hostUI.WriteLine(notificationMsg);
-                hostUI.WriteLine(releaseUri);
+                int maxLength = GetMaxLength(notificationMsg1, notificationMsg2, releaseUri);
+                notificationMsg1 = Padding(notificationMsg1, maxLength);
+                notificationMsg2 = Padding(notificationMsg2, maxLength);
+                releaseUri = Padding(releaseUri, maxLength);
+
+                hostUI.WriteLine(ConsoleColor.Black, ConsoleColor.Yellow, notificationMsg1);
+                hostUI.WriteLine(ConsoleColor.Black, ConsoleColor.Yellow, notificationMsg2);
+                hostUI.WriteLine(ConsoleColor.Black, ConsoleColor.Yellow, releaseUri);
                 hostUI.WriteLine();
+            }
+
+            int GetMaxLength(string a, string b, string c)
+            {
+                int maxLength = a.Length;
+
+                if (maxLength < b.Length)
+                {
+                    maxLength = b.Length;
+                }
+
+                if (maxLength < c.Length)
+                {
+                    maxLength = c.Length;
+                }
+
+                return maxLength;
+            }
+
+            string Padding(string str, int length)
+            {
+                if (str.Length == length)
+                {
+                    return str;
+                }
+
+                Span<char> buffer = stackalloc char[length];
+                buffer.Fill(' ');
+                str.AsSpan().CopyTo(buffer);
+                return buffer.ToString();
             }
         }
 
