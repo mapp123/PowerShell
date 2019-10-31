@@ -988,52 +988,6 @@ namespace System.Management.Automation.Language
             return AstVisitAction.Continue;
         }
 
-        public override AstVisitAction VisitUsingExpression(UsingExpressionAst usingExpressionAst)
-        {
-            // The parser will parse anything that could start with a variable when
-            // creating a UsingExpressionAst, but we will only support "simple"
-            // property and array references with no side effects.
-
-            var exprAst = usingExpressionAst.SubExpression;
-            var badExpr = CheckUsingExpression(exprAst);
-            if (badExpr != null)
-            {
-                _parser.ReportError(badExpr.Extent,
-                    nameof(ParserStrings.InvalidUsingExpression),
-                    ParserStrings.InvalidUsingExpression);
-            }
-
-            return AstVisitAction.Continue;
-        }
-
-        private ExpressionAst CheckUsingExpression(ExpressionAst exprAst)
-        {
-            RuntimeHelpers.EnsureSufficientExecutionStack();
-            if (exprAst is VariableExpressionAst)
-            {
-                return null;
-            }
-
-            var memberExpr = exprAst as MemberExpressionAst;
-            if (memberExpr != null && !(memberExpr is InvokeMemberExpressionAst) && (memberExpr.Member is StringConstantExpressionAst))
-            {
-                return CheckUsingExpression(memberExpr.Expression);
-            }
-
-            var indexExpr = exprAst as IndexExpressionAst;
-            if (indexExpr != null)
-            {
-                if (!IsValidAttributeArgument(indexExpr.Index, s_isConstantAttributeArgVisitor))
-                {
-                    return indexExpr.Index;
-                }
-
-                return CheckUsingExpression(indexExpr.Target);
-            }
-
-            return exprAst;
-        }
-
         public override AstVisitAction VisitVariableExpression(VariableExpressionAst variableExpressionAst)
         {
             if (variableExpressionAst.Splatted && !(variableExpressionAst.Parent is CommandAst) && !(variableExpressionAst.Parent is UsingExpressionAst))

@@ -866,9 +866,6 @@ The correct form is: foreach ($a in $b) {...}</value>
   <data name="AstIsReused" xml:space="preserve">
     <value>An AST cannot be used as the child of more than one AST. To use this AST in another AST, call the Copy() method and use its result.</value>
   </data>
-  <data name="InvalidUsingExpression" xml:space="preserve">
-    <value>Expression is not allowed in a Using expression.</value>
-  </data>
   <data name="UsingWithoutInvokeCommand" xml:space="preserve">
     <value>A Using variable cannot be retrieved. A Using variable can be used only with Invoke-Command, Start-Job, or InlineScript in the script workflow. When it is used with Invoke-Command, the Using variable is valid only if the script block is invoked on a remote computer.</value>
   </data>
