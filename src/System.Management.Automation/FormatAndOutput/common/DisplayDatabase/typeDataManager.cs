@@ -89,10 +89,9 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             }
 
             PSPropertyExpressionFactory expressionFactory = new PSPropertyExpressionFactory();
-            List<XmlLoaderLoggerEntry> logEntries = null;
 
             // load the files
-            LoadFromFile(filesToLoad, expressionFactory, true, authorizationManager, host, false, out logEntries);
+            LoadFromFile(filesToLoad, expressionFactory, true, authorizationManager, host, false);
             this.isShared = isShared;
 
             // check to see if there are any errors loading the format files
@@ -209,10 +208,9 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             }
 
             PSPropertyExpressionFactory expressionFactory = new PSPropertyExpressionFactory();
-            List<XmlLoaderLoggerEntry> logEntries = null;
 
             // load the formatting data
-            LoadFromFile(filesToLoad, expressionFactory, false, null, null, false, out logEntries);
+            LoadFromFile(filesToLoad, expressionFactory, false, null, null, false);
 
             // check to see if there are any errors loading the format files
             if (errors.Count > 0)
@@ -292,8 +290,7 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             }
 
             PSPropertyExpressionFactory expressionFactory = new PSPropertyExpressionFactory();
-            List<XmlLoaderLoggerEntry> logEntries = null;
-            LoadFromFile(mshsnapins, expressionFactory, false, authorizationManager, host, preValidated, out logEntries);
+            LoadFromFile(mshsnapins, expressionFactory, false, authorizationManager, host, preValidated);
         }
 
         /// <summary>
@@ -313,7 +310,6 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
         /// True if the format data has been pre-validated (build time, manual testing, etc) so that validation can be
         /// skipped at runtime.
         /// </param>
-        /// <param name="logEntries">Trace and error logs from loading the format Xml files.</param>
         /// <returns>True if we had a successful load.</returns>
         internal bool LoadFromFile(
             Collection<PSSnapInTypeAndFormatErrors> files,
@@ -321,8 +317,7 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             bool acceptLoadingErrors,
             AuthorizationManager authorizationManager,
             PSHost host,
-            bool preValidated,
-            out List<XmlLoaderLoggerEntry> logEntries)
+            bool preValidated)
         {
             bool success;
             try
@@ -330,7 +325,7 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
                 TypeInfoDataBase newDataBase = null;
                 lock (updateDatabaseLock)
                 {
-                    newDataBase = LoadFromFileHelper(files, expressionFactory, authorizationManager, host, preValidated, out logEntries, out success);
+                    newDataBase = LoadFromFileHelper(files, expressionFactory, authorizationManager, host, preValidated, out success);
                 }
                 // if we have a valid database, assign it to the
                 // current database
@@ -374,7 +369,6 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
         /// True if the format data has been pre-validated (build time, manual testing, etc) so that validation can be
         /// skipped at runtime.
         /// </param>
-        /// <param name="logEntries">List of logger entries (errors, etc.) to return to the caller.</param>
         /// <param name="success">True if no error occurred.</param>
         /// <returns>A database instance loaded from file(s).</returns>
         private static TypeInfoDataBase LoadFromFileHelper(
@@ -383,12 +377,9 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             AuthorizationManager authorizationManager,
             PSHost host,
             bool preValidated,
-            out List<XmlLoaderLoggerEntry> logEntries,
             out bool success)
         {
             success = true;
-            // Holds the aggregated log entries for all files...
-            logEntries = new List<XmlLoaderLoggerEntry>();
 
             // fresh instance of the database
             TypeInfoDataBase db = new TypeInfoDataBase();
@@ -405,13 +396,13 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
                 // Loads formatting data from ExtendedTypeDefinition instance
                 if (file.FormatData != null)
                 {
-                    LoadFormatDataHelper(file.FormatData, expressionFactory, logEntries, ref success, file, db, isBuiltInFormatData: false, isForHelp: false);
+                    LoadFormatDataHelper(file.FormatData, expressionFactory, ref success, file, db, isBuiltInFormatData: false, isForHelp: false);
                     continue;
                 }
 
                 if (etwEnabled) RunspaceEventSource.Log.ProcessFormatFileStart(file.FullPath);
 
-                if (!ProcessBuiltin(file, db, expressionFactory, logEntries, ref success))
+                if (!ProcessBuiltin(file, db, expressionFactory, ref success))
                 {
                     // Loads formatting data from formatting data XML file
                     XmlFileLoadInfo info =
@@ -431,8 +422,6 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
                                 if (entry.failToLoadFile) { file.FailToLoadFile = true; }
                             }
                         }
-                        // now aggregate the entries...
-                        logEntries.AddRange(loader.LogEntries);
                     }
                 }
 
@@ -447,8 +436,10 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
 
         private static void LoadFormatDataHelper(
             ExtendedTypeDefinition formatData,
-            PSPropertyExpressionFactory expressionFactory, List<XmlLoaderLoggerEntry> logEntries, ref bool success,
-            PSSnapInTypeAndFormatErrors file, TypeInfoDataBase db,
+            PSPropertyExpressionFactory expressionFactory,
+            ref bool success,
+            PSSnapInTypeAndFormatErrors file,
+            TypeInfoDataBase db,
             bool isBuiltInFormatData,
             bool isForHelp)
         {
@@ -467,8 +458,6 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
                         file.Errors.Add(mshsnapinMessage);
                     }
                 }
-                // now aggregate the entries...
-                logEntries.AddRange(loader.LogEntries);
             }
         }
 
@@ -484,7 +473,6 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             PSSnapInTypeAndFormatErrors file,
             TypeInfoDataBase db,
             PSPropertyExpressionFactory expressionFactory,
-            List<XmlLoaderLoggerEntry> logEntries,
             ref bool success)
         {
             if (s_builtinGenerators == null)
@@ -512,7 +500,7 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             if (!s_builtinGenerators.TryGetValue(file.FullPath, out generator))
                 return false;
 
-            ProcessBuiltinFormatViewDefinitions(generator.Item2(), db, expressionFactory, file, logEntries, generator.Item1, ref success);
+            ProcessBuiltinFormatViewDefinitions(generator.Item2(), db, expressionFactory, file, generator.Item1, ref success);
             return true;
         }
 
@@ -521,13 +509,12 @@ namespace Microsoft.PowerShell.Commands.Internal.Format
             TypeInfoDataBase db,
             PSPropertyExpressionFactory expressionFactory,
             PSSnapInTypeAndFormatErrors file,
-            List<XmlLoaderLoggerEntry> logEntries,
             bool isForHelp,
             ref bool success)
         {
             foreach (var v in views)
             {
-                LoadFormatDataHelper(v, expressionFactory, logEntries, ref success, file, db, isBuiltInFormatData: true, isForHelp: isForHelp);
+                LoadFormatDataHelper(v, expressionFactory, ref success, file, db, isBuiltInFormatData: true, isForHelp: isForHelp);
             }
         }
 
