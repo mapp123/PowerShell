@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk" ToolsVersion="15.0">
+  <Import Project="..\..\PowerShell.Common.props" />
+  <PropertyGroup>
+    <Description>PowerShell's command completion component</Description>
+    <AssemblyName>Microsoft.PowerShell.CommandCompletion</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\System.Management.Automation\System.Management.Automation.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);CORECLR</DefineConstants>
+  </PropertyGroup>
+
+</Project>

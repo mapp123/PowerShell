@@ -56,7 +56,7 @@ namespace System.Management.Automation
         public Collection<CompletionResult> CompletionMatches { get; set; }
 
         internal static readonly IList<CompletionResult> EmptyCompletionResult = Array.Empty<CompletionResult>();
-        private static readonly CommandCompletion s_emptyCommandCompletion = new CommandCompletion(
+        internal static readonly CommandCompletion EmptyCommandCompletion = new CommandCompletion(
             new Collection<CompletionResult>(EmptyCompletionResult), -1, -1, -1);
 
         #endregion Fields and Properties
@@ -94,7 +94,7 @@ namespace System.Management.Automation
         {
             if (input == null)
             {
-                return s_emptyCommandCompletion;
+                return EmptyCommandCompletion;
             }
 
             var parsedInput = MapStringInputToParsedInput(input, cursorIndex);
@@ -142,7 +142,7 @@ namespace System.Management.Automation
         {
             if (input == null)
             {
-                return s_emptyCommandCompletion;
+                return EmptyCommandCompletion;
             }
 
             if (cursorIndex > input.Length)
@@ -169,7 +169,7 @@ namespace System.Management.Automation
                 // supported on remote runspaces.
                 if (powershell.IsNested || (remoteRunspace.RunspaceAvailability != RunspaceAvailability.Available))
                 {
-                    return s_emptyCommandCompletion;
+                    return EmptyCommandCompletion;
                 }
 
                 // If it's in the nested prompt, the powershell instance is created by "PowerShell.Create(RunspaceMode.CurrentRunspace);".
@@ -248,7 +248,7 @@ namespace System.Management.Automation
                 // supported on remote runspaces.
                 if (powershell.IsNested || (remoteRunspace.RunspaceAvailability != RunspaceAvailability.Available))
                 {
-                    return s_emptyCommandCompletion;
+                    return EmptyCommandCompletion;
                 }
 
                 if (!powershell.IsChild)
@@ -329,7 +329,7 @@ namespace System.Management.Automation
         {
             if (input == null)
             {
-                return s_emptyCommandCompletion;
+                return EmptyCommandCompletion;
             }
 
             if (cursorIndex > input.Length)
@@ -417,7 +417,7 @@ namespace System.Management.Automation
                 }
             }
 
-            return s_emptyCommandCompletion;
+            return EmptyCommandCompletion;
         }
 
         #endregion
@@ -451,7 +451,7 @@ namespace System.Management.Automation
                 var results = powershell.Invoke();
                 if (results == null)
                 {
-                    return s_emptyCommandCompletion;
+                    return EmptyCommandCompletion;
                 }
 
                 if (results.Count == 1)
@@ -472,7 +472,7 @@ namespace System.Management.Automation
                 powershell.Commands.Clear();
             }
 
-            return s_emptyCommandCompletion;
+            return EmptyCommandCompletion;
         }
 
         private static CommandCompletion CallScriptWithAstParameterSet(Ast ast, Token[] tokens, IScriptPosition cursorPosition, Hashtable options, PowerShell powershell)
@@ -488,7 +488,7 @@ namespace System.Management.Automation
                 var results = powershell.Invoke();
                 if (results == null)
                 {
-                    return s_emptyCommandCompletion;
+                    return EmptyCommandCompletion;
                 }
 
                 if (results.Count == 1)
@@ -509,7 +509,7 @@ namespace System.Management.Automation
                 powershell.Commands.Clear();
             }
 
-            return s_emptyCommandCompletion;
+            return EmptyCommandCompletion;
         }
 
         // This is the start of the real implementation of autocomplete/intellisense/tab completion
