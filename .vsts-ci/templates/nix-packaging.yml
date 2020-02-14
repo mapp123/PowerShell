@@ -1,16 +1,16 @@
 parameters:
-  pool: 'Hosted VS2017'
-  jobName: 'win_packaging'
+  pool: 'macOS-latest'
   parentJobs: []
+  name: 'mac'
 
 jobs:
-- job: ${{ parameters.jobName }}
+- job: ${{ parameters.name }}_packaging
   dependsOn:
-      ${{ parameters.parentJobs }}
+    ${{ parameters.parentJobs }}
   pool:
-    name: ${{ parameters.pool }}
+    vmImage: ${{ parameters.pool }}
 
-  displayName: Windows Packaging
+  displayName: ${{ parameters.name }} Packaging
 
   steps:
   - powershell: |
