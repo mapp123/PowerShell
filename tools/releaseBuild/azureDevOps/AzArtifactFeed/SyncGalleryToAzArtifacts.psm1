@@ -32,15 +32,19 @@ function SyncGalleryToAzArtifacts {
     $azDevOpsCreds = [pscredential]::new($AzDevOpsFeedUserName, (ConvertTo-SecureString -String $AzDevOpsPAT -AsPlainText -Force))
 
     foreach ($package in $packages) {
+        $packageName = $package.Name
+
         try {
             # Get module from gallery
-            $foundPackageOnGallery = Find-Package -ProviderName NuGet -Source $galleryUrl -AllVersions -Name $package.Name -Force -AllowPreReleaseVersion | SortPackage | Select-Object -First 1
-            Write-Verbose -Verbose "Found module $($package.Name) - $($foundPackageOnGallery.Version) in gallery"
-            $galleryPackages += $foundPackageOnGallery
+            $foundPackageOnGallery = Find-Package -ProviderName NuGet -Source $galleryUrl -AllVersions -Name $package.Name -Force -AllowPreReleaseVersion
+            $galleryTarget = GetTargetPackages -packages $foundPackageOnGallery
+
+            Write-Verbose -Verbose "Found module $packageName - $($galleryTarget.OutString) in gallery"
+            $galleryPackages += $galleryTarget
         } catch {
             if ($_.FullyQualifiedErrorId -eq 'NoMatchFoundForCriteria,Microsoft.PowerShell.PackageManagement.Cmdlets.FindPackage') {
                 # Log and ignore failure is required version is not found on gallery.
-                Write-Warning "Module not found on gallery $($package.Name) - $($package.Version)"
+                Write-Warning "Module not found on gallery $packageName - $($package.Version)"
             }
             else {
                 Write-Error $_
@@ -51,13 +55,15 @@ function SyncGalleryToAzArtifacts {
             # Get module from Az Artifacts
             # There seems to be a bug in the feed with RequiredVersion matching. Adding workaround with post filtering.
             # Issue: https://github.com/OneGet/oneget/issues/397
-            $foundPackageOnAz = Find-Package -ProviderName NuGet -Source $azArtifactsUrl -AllVersions -Name $package.Name -Force -Credential $azDevOpsCreds -AllowPreReleaseVersion | SortPackage | Select-Object -First 1
-            Write-Verbose -Verbose "Found module $($package.Name) - $($foundPackageOnAz.Version) in azArtifacts"
-            $azArtifactsPackages += $foundPackageOnAz
+            $foundPackageOnAz = Find-Package -ProviderName NuGet -Source $azArtifactsUrl -AllVersions -Name $package.Name -Force -Credential $azDevOpsCreds -AllowPreReleaseVersion
+            $azTarget = GetTargetPackages -packages $foundPackageOnAz
+
+            Write-Verbose -Verbose "Found module $packageName - $($azTarget.OutString) in azArtifacts"
+            $azArtifactsPackages += $azTarget
         } catch {
             if ($_.FullyQualifiedErrorId -eq 'NoMatchFoundForCriteria,Microsoft.PowerShell.PackageManagement.Cmdlets.FindPackage') {
                 # Log and add the module to update list.
-                Write-Verbose -Verbose "Az Artifacts Module needs update to - $($package.Name) - $($package.Version)"
+                Write-Verbose -Verbose "Az Artifacts Module needs update to - $packageName - $($package.Version)"
                 $modulesToUpdate += $package
             }
             else {
@@ -65,25 +71,54 @@ function SyncGalleryToAzArtifacts {
             }
         }
 
-        # Check if Az package version is less that gallery version
-        $pkgOnAzVersion = [semver]::new($foundPackageOnAz.Version)
-        $pkgOnGalleryVersion = [semver]::new($foundPackageOnGallery.Version)
+        if ($galleryTarget.LatestStable -and !$azTarget.LatestStable) {
+            Write-Verbose -Verbose "Module needs to be updated $packageName - $($galleryTarget.LatestStable.Version)"
+            $modulesToUpdate += $galleryTarget.LatestStable
+        }
 
-        if ($pkgOnAzVersion -lt $pkgOnGalleryVersion) {
-            Write-Verbose -Verbose "Module needs to be updated $($package.Name) - $($foundPackageOnGallery.Version)"
-            $modulesToUpdate += $foundPackageOnGallery
-        } elseif ($pkgOnGalleryVersion -lt $pkgOnAzVersion) {
-            Write-Warning "Newer version found on Az Artifacts - $($foundPackageOnAz.Name) - $($foundPackageOnAz.Version)"
-        } else {
-            Write-Verbose -Verbose "Module is in sync - $($package.Name)"
+        if ($galleryTarget.LatestPreview -and !$azTarget.LatestPreview) {
+            Write-Verbose -Verbose "Module needs to be updated $packageName - $($galleryTarget.LatestPreview.Version)"
+            $modulesToUpdate += $galleryTarget.LatestPreview
+        }
+
+        if ($galleryTarget.LatestStable -and $azTarget.LatestStable) {
+            $pkgOnGalleryVersion = [semver]::new($galleryTarget.LatestStable.Version)
+            $pkgOnAzVersion = [semver]::new($azTarget.LatestStable.Version)
+
+            if ($pkgOnAzVersion -lt $pkgOnGalleryVersion) {
+                Write-Verbose -Verbose "Module needs to be updated $packageName - $($galleryTarget.LatestStable.Version)"
+                $modulesToUpdate += $galleryTarget.LatestStable
+            }
+            elseif ($pkgOnGalleryVersion -lt $pkgOnAzVersion) {
+                Write-Warning "Newer stable version found on Az Artifacts - $packageName - $($azTarget.LatestStable.Version)"
+            }
+            else {
+                Write-Verbose -Verbose "Module is in sync for stable version - $packageName"
+            }
+        }
+
+        if ($galleryTarget.LatestPreview -and $azTarget.LatestPreview) {
+            $pkgOnGalleryVersion = [semver]::new($galleryTarget.LatestPreview.Version)
+            $pkgOnAzVersion = [semver]::new($azTarget.LatestPreview.Version)
+
+            if ($pkgOnAzVersion -lt $pkgOnGalleryVersion) {
+                Write-Verbose -Verbose "Module needs to be updated $packageName - $($galleryTarget.LatestPreview.Version)"
+                $modulesToUpdate += $galleryTarget.LatestPreview
+            }
+            elseif ($pkgOnGalleryVersion -lt $pkgOnAzVersion) {
+                Write-Warning "Newer preview version found on Az Artifacts - $packageName - $($azTarget.LatestPreview.Version)"
+            }
+            else {
+                Write-Verbose -Verbose "Module is in sync for preview version - $packageName"
+            }
         }
     }
 
     "`nGallery Packages:"
-    $galleryPackages
+    $galleryPackages.OutString
 
     "`nAz Artifacts Packages:`n"
-    $azArtifactsPackages
+    $azArtifactsPackages.OutString
 
     "`nModules to update:`n"
     $modulesToUpdate
@@ -129,44 +164,38 @@ function SyncGalleryToAzArtifacts {
     }
 }
 
-Function SortPackage {
+function GetTargetPackages {
     param(
-        [Parameter(ValueFromPipeline = $true)]
         [Microsoft.PackageManagement.Packaging.SoftwareIdentity[]]
         $packages
     )
 
-    Begin {
-        $allPackages = @()
-    }
+    $latestStable = $allPackages | Where-Object { -not $_.Version.Contains('-') } `
+        | Sort-Object -Descending -Property Version `
+        | Select-Object -First 1
 
-    Process {
-        $allPackages += $packages
-    }
+    $latestPreview = $allPackages | Where-Object { $_.Version.Contains('-') } `
+        | Sort-Object -Descending -Property Version `
+        | Select-Object -First 1
 
-    End {
-        $versions = $allPackages.Version |
-        ForEach-Object { ($_ -split '-')[0] } |
-        Select-Object -Unique |
-        Sort-Object -Descending -Property Version
-
-        foreach ($version in $versions) {
-            $exactMatch = $allPackages | Where-Object {
-                Write-Verbose "testing $($_.version) -eq $version"
-                $_.version -eq $version
-            }
-
-            if ($exactMatch) {
-                Write-Output $exactMatch
-            }
-
-            $allPackages | Where-Object {
-                $_.version -like "${version}-*"
-            } | Sort-Object -Descending -Property Version | Write-Output
+    if ($latestStable -and $latestPreview) {
+        $previewStablePart = ($latestPreview.Version -split '-')[0]
+        if ($previewStablePart -le $latestStable.Version) {
+            $latestPreview = $null
         }
     }
-}
 
+    if ($latestStable) {
+        $outString = "Latest stable version: " + $latestStable.Version
+    }
+
+    if ($latestPreview) {
+        if ($outString) { $outString += "; " }
+        $outString += "Latest preview version: " + $latestPreview.Version
+    }
+
+    Write-Output @{ LatestStable = $latestStable; LatestPreview = $latestPreview; OutString = $outString }
+}
 
 function NormalizeVersion {
     param ([string] $version)
@@ -183,4 +212,4 @@ function NormalizeVersion {
     $sVer
 }
 
-Export-ModuleMember -Function 'SyncGalleryToAzArtifacts', 'SortPackage'
+Export-ModuleMember -Function 'SyncGalleryToAzArtifacts'
