@@ -19,6 +19,8 @@ function SyncGalleryToAzArtifacts {
         [Parameter(Mandatory = $true)] [string] $Destination
     )
 
+    try {
+
     $csproj = [xml] (Get-Content 'src/Modules/PSGalleryModules.csproj')
     $packages = @($csproj.Project.ItemGroup.PackageReference | ForEach-Object { [ordered] @{Name = $_.Include; Version = $_.Version }})
 
@@ -42,6 +44,10 @@ function SyncGalleryToAzArtifacts {
             Write-Verbose -Verbose "Found module $packageName - $($galleryTarget.OutString) in gallery"
             $galleryPackages += $galleryTarget
         } catch {
+            "-----------------"
+            $_ | Out-String | Write-Verbose -Verbose
+            "-----------------"
+
             if ($_.FullyQualifiedErrorId -eq 'NoMatchFoundForCriteria,Microsoft.PowerShell.PackageManagement.Cmdlets.FindPackage') {
                 # Log and ignore failure is required version is not found on gallery.
                 Write-Warning "Module not found on gallery $packageName - $($package.Version)"
@@ -161,6 +167,12 @@ function SyncGalleryToAzArtifacts {
         finally {
             Unregister-PackageSource -Name local -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    }catch {
+        "++++++++++++++++++++++"
+        $_ | Out-String | Write-Verbose -Verbose
+        "++++++++++++++++++++++"
     }
 }
 
