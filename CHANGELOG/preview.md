@@ -1,5 +1,28 @@
 # Current preview release
 
+## [7.1.0-rc.2] - 2020-10-20
+
+### Engine Updates and Fixes
+
+- Rename `Get-Subsystem` to `Get-PSSubsystem` and fix two related minor issues (#13765)
+- Add missing `PSToken` entries (#13779)
+- Add additional PowerShell modules to the tracked modules list (#12183)
+- Fix blocking wait when starting file associated with a Windows application (#13750)
+- Continue to make `PSNativePSPathResolution` an experimental feature (#13734)
+
+### General Cmdlet Updates and Fixes
+
+- Emit warning if `ConvertTo-Json` exceeds `-Depth` value (#13692)
+
+### Build and Packaging Improvements
+
+- Add flag to make Linux script publish to production repository (#13714)
+- Update `PSReadLine` version to `2.1.0-rc1` (#13777)
+- Move PowerShell build to dotnet `5.0-RC.2` (#13780)
+- Bump `Microsoft.PowerShell.Native` to `7.1.0-rc.2` (#13794)
+
+[7.1.0-rc.2]: https://github.com/PowerShell/PowerShell/compare/v7.1.0-rc.1...v7.1.0-rc.2
+
 ## [7.1.0-rc.1] - 2020-09-29
 
 ### Engine Updates and Fixes
